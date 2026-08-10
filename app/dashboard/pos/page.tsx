@@ -299,9 +299,9 @@ export default function POSPage() {
     <div className="grid h-full grid-cols-1 gap-6 lg:grid-cols-3">
       {/* LEFT: Product browser & scanner */}
       <div className="col-span-1 flex flex-col space-y-6 lg:col-span-2">
-        {/* Barcode Scanner + Camera Button */}
-        <div className="flex gap-3">
-          <div className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        {/* Barcode Scanner + Camera Button - Same Level */}
+        <div className="flex items-stretch gap-3">
+          <div className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex flex-col">
             <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
               <Barcode className="h-4 w-4" /> Barcode Scanner
             </label>
@@ -312,11 +312,13 @@ export default function POSPage() {
               onChange={(e) => setScannerInput(e.target.value)}
               onKeyDown={handleScannerKeyDown}
               placeholder="Scan or type barcode..."
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
+              className="w-full flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
               autoComplete="off"
             />
           </div>
-          <div className="flex items-end">
+          
+          {/* Scan Item Button */}
+          <div className="flex-shrink-0">
             <input
               ref={fileInputRef}
               type="file"
@@ -327,7 +329,7 @@ export default function POSPage() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              className="flex flex-col items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors h-full w-24"
             >
               <Camera className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
               <span className="text-xs mt-1 text-slate-600 dark:text-slate-400">Scan Item</span>
