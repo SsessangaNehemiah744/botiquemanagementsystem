@@ -175,7 +175,7 @@ export default function DashboardLayout({
       : variants.filter(
           (v) =>
             v.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            v.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           
             v.barcode.includes(searchQuery)
         );
 
@@ -304,7 +304,7 @@ export default function DashboardLayout({
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{v.productName}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {v.sku} · {v.size}/{v.color}
+                            {v.size}/{v.color}
                           </p>
                         </div>
                         <div className="text-right text-xs">
