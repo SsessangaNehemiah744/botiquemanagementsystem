@@ -20,19 +20,9 @@ export interface Notification {
   user?: string;
 }
 
-interface OnlineUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  lastSeen: string;
-}
-
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
-  onlineUsers: OnlineUser[];
-  onlineCount: number;
   markAllRead: () => void;
   markAsRead: (id: string) => void;
   addNotification: (notification: Omit<Notification, "id" | "time" | "read">) => void;
@@ -41,24 +31,20 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
 
-// Helper to add notification without relying on state setter
-let addNotificationGlobal: ((notification: Omit<Notification, "id" | "time" | "read">) => void) | null = null;
-
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-  const supabase = createClient();
-  const channelRef = useRef<any>(null);
-  const productChannelRef = useRef<any>(null);
+  const supabaseRef = useRef(createClient());
+  const dbChannelRef = useRef<any>(null);
+  const initializedRef = useRef(false);
 
-  // Fetch initial notifications from localStorage
+  // Load notifications from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("boutiqueos-notifications");
     if (saved) {
       try {
         setNotifications(JSON.parse(saved));
       } catch (e) {
-        // Ignore parse errors
+        // Ignore
       }
     }
   }, []);
@@ -81,127 +67,38 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     []
   );
 
-  // Store the function globally so presence callbacks can use it
+  // Listen for database changes (new products added)
   useEffect(() => {
-    addNotificationGlobal = addNotificationLocal;
-    return () => {
-      addNotificationGlobal = null;
-    };
-  }, [addNotificationLocal]);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-  // Track current user's presence
-  useEffect(() => {
-    let channel: any = null;
+    const supabase = supabaseRef.current;
 
-    async function setupPresence() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role, full_name")
-        .eq("id", user.id)
-        .single();
-
-      const userData = {
-        id: user.id,
-        name: profile?.full_name || user.email?.split("@")[0] || "Unknown",
-        email: user.email || "",
-        role: profile?.role || "cashier",
-        lastSeen: new Date().toISOString(),
-      };
-
-      // Create channel with all callbacks BEFORE subscribing
-      channel = supabase.channel("online-users", {
-        config: {
-          presence: {
-            key: user.id,
-          },
-        },
-      });
-
-      // Set up all event listeners before subscribe
-      channel.on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        const users: OnlineUser[] = [];
-        Object.values(state).forEach((presences: any) => {
-          presences.forEach((presence: any) => {
-            if (!users.find((u) => u.id === presence.id)) {
-              users.push(presence);
-            }
-          });
-        });
-        setOnlineUsers(users);
-      });
-
-      channel.on("presence", { event: "join" }, ({ newPresences }: any) => {
-        const newUser = newPresences[0];
-        if (newUser && newUser.id !== user.id && addNotificationGlobal) {
-          addNotificationGlobal({
-            type: "login",
-            title: "User Online",
-            message: `${newUser.name} is now online`,
-            user: newUser.name,
-          });
-        }
-      });
-
-      channel.on("presence", { event: "leave" }, ({ leftPresences }: any) => {
-        const leftUser = leftPresences[0];
-        if (leftUser && addNotificationGlobal) {
-          addNotificationGlobal({
-            type: "logout",
-            title: "User Offline",
-            message: `${leftUser.name} went offline`,
-            user: leftUser.name,
-          });
-        }
-      });
-
-      // Subscribe AFTER all callbacks are set
-      channel.subscribe(async (status: string) => {
-        if (status === "SUBSCRIBED") {
-          await channel.track(userData);
-        }
-      });
-    }
-
-    setupPresence();
-
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, []);
-
-  // Listen for database changes (new products)
-  useEffect(() => {
-    const productChannel = supabase
+    const dbChannel = supabase
       .channel("product-changes")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "product_variants" },
         (payload: any) => {
-          if (addNotificationGlobal) {
-            addNotificationGlobal({
-              type: "product",
-              title: "New Product Added",
-              message: `${payload.new?.sku || "Unknown"} was added to inventory`,
-            });
-          }
+          addNotificationLocal({
+            type: "product",
+            title: "New Product Added",
+            message: `${payload.new?.barcode || "Unknown"} was added to inventory`,
+          });
         }
       )
       .subscribe();
 
-    productChannelRef.current = productChannel;
+    dbChannelRef.current = dbChannel;
 
     return () => {
-      if (productChannelRef.current) {
-        supabase.removeChannel(productChannelRef.current);
+      if (dbChannelRef.current) {
+        supabase.removeChannel(dbChannelRef.current);
+        dbChannelRef.current = null;
       }
+      initializedRef.current = false;
     };
-  }, []);
+  }, [addNotificationLocal]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -231,8 +128,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       value={{
         notifications,
         unreadCount,
-        onlineUsers,
-        onlineCount: onlineUsers.length,
         markAllRead,
         markAsRead,
         addNotification,

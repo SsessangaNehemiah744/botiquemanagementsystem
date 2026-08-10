@@ -53,15 +53,7 @@ export default function DashboardLayout({
   const [role, setRole] = useState<UserRole>("admin");
   const { theme, toggleTheme } = useTheme();
   const { variants } = useInventory();
-  const {
-    notifications,
-    unreadCount,
-    onlineUsers,
-    onlineCount,
-    markAllRead,
-    markAsRead,
-    addNotification,
-  } = useNotifications();
+  const { notifications, unreadCount, markAllRead, markAsRead } = useNotifications();
 
   // User state
   const [userEmail, setUserEmail] = useState("");
@@ -175,7 +167,6 @@ export default function DashboardLayout({
       : variants.filter(
           (v) =>
             v.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-           
             v.barcode.includes(searchQuery)
         );
 
@@ -266,7 +257,7 @@ export default function DashboardLayout({
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search inventory (name, SKU, barcode)..."
+                placeholder="Search inventory..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none text-sm"
@@ -304,7 +295,7 @@ export default function DashboardLayout({
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{v.productName}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {v.size}/{v.color}
+                            {v.barcode} · {v.size}/{v.color}
                           </p>
                         </div>
                         <div className="text-right text-xs">
@@ -459,6 +450,7 @@ export default function DashboardLayout({
                     setUserMenuOpen(false);
                   }}
                   className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative transition-colors"
+                  aria-label="Notifications"
                 >
                   <Bell
                     className={`h-5 w-5 ${
@@ -474,19 +466,24 @@ export default function DashboardLayout({
                   )}
                 </button>
 
+                {/* Notification Dropdown - Right aligned */}
                 {notifOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
+                  <div className="fixed right-4 top-16 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50 sm:absolute sm:right-0 sm:top-full sm:mt-2">
                     <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
                       <h3 className="font-semibold text-sm">Notifications</h3>
-                      <span className="flex items-center gap-1 text-xs text-slate-500">
-                        <span className="h-2 w-2 rounded-full bg-green-500"></span>
-                        {onlineCount} online
-                      </span>
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={markAllRead}
+                          className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
+                        >
+                          Mark all read
+                        </button>
+                      )}
                     </div>
 
-                    <div className="max-h-64 overflow-y-auto">
+                    <div className="max-h-72 overflow-y-auto">
                       {notifications.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-slate-400">
+                        <div className="p-6 text-center text-sm text-slate-400">
                           <Bell className="mx-auto h-8 w-8 mb-2 opacity-50" />
                           <p>No notifications yet</p>
                         </div>
@@ -501,7 +498,9 @@ export default function DashboardLayout({
                                 : ""
                             }`}
                           >
-                            <div className="mt-0.5">{getNotifIcon(notif.type)}</div>
+                            <div className="mt-0.5 flex-shrink-0">
+                              {getNotifIcon(notif.type)}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">
                                 {notif.title}
@@ -521,28 +520,11 @@ export default function DashboardLayout({
                       )}
                     </div>
 
-                    {onlineUsers.length > 0 && (
-                      <div className="border-t border-slate-200 dark:border-slate-700 p-3">
-                        <p className="text-xs font-medium text-slate-500 mb-2">
-                          Online Now
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {onlineUsers.slice(0, 5).map((user) => (
-                            <span
-                              key={user.id}
-                              className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1 text-xs"
-                              title={user.email}
-                            >
-                              <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-                              {user.name}
-                            </span>
-                          ))}
-                          {onlineUsers.length > 5 && (
-                            <span className="text-xs text-slate-400">
-                              +{onlineUsers.length - 5} more
-                            </span>
-                          )}
-                        </div>
+                    {notifications.length > 20 && (
+                      <div className="border-t border-slate-200 dark:border-slate-700 p-3 text-center">
+                        <span className="text-xs text-slate-400">
+                          Showing 20 of {notifications.length} notifications
+                        </span>
                       </div>
                     )}
                   </div>
