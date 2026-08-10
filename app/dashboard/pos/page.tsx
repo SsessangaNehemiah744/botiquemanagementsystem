@@ -13,97 +13,12 @@ import {
   X,
   ShoppingBag,
   Barcode,
+  Camera,
+  Loader2,
 } from "lucide-react";
+import { useInventory, type Variant, type ProductCategory } from "@/context/InventoryContext";
 
-// ========== MOCK DATA ==========
-const mockProducts = [
-  {
-    id: "1",
-    name: "Silk Evening Gown",
-    category: "Dresses",
-    image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=400",
-    variants: [
-      {
-        id: "v1",
-        sku: "DRS-001-BLK-S",
-        barcode: "200001",
-        size: "S",
-        color: "Black",
-        selling_price: 250000,
-        stock_quantity: 3,
-        image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=400",
-      },
-      {
-        id: "v2",
-        sku: "DRS-001-BLK-M",
-        barcode: "200002",
-        size: "M",
-        color: "Black",
-        selling_price: 250000,
-        stock_quantity: 5,
-        image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=400",
-      },
-    ],
-  },
-  {
-    id: "2",
-    name: "Trench Coat",
-    category: "Outerwear",
-    image: "https://images.unsplash.com/photo-1548624313-0396c75e4b1a?w=400",
-    variants: [
-      {
-        id: "v3",
-        sku: "OUT-001-KHK-M",
-        barcode: "300001",
-        size: "M",
-        color: "Khaki",
-        selling_price: 350000,
-        stock_quantity: 2,
-        image: "https://images.unsplash.com/photo-1548624313-0396c75e4b1a?w=400",
-      },
-    ],
-  },
-  {
-    id: "3",
-    name: "Pleated Skirt",
-    category: "Skirts",
-    image: "https://images.unsplash.com/photo-1583496661160-fb5886a0o6f0?w=400",
-    variants: [
-      {
-        id: "v4",
-        sku: "SKT-001-WHT-S",
-        barcode: "400001",
-        size: "S",
-        color: "White",
-        selling_price: 120000,
-        stock_quantity: 8,
-        image: "https://images.unsplash.com/photo-1583496661160-fb5886a0o6f0?w=400",
-      },
-    ],
-  },
-  {
-    id: "4",
-    name: "Leather Handbag",
-    category: "Accessories",
-    image: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=400",
-    variants: [
-      {
-        id: "v5",
-        sku: "ACC-001-BRN-OS",
-        barcode: "500001",
-        size: "One Size",
-        color: "Brown",
-        selling_price: 180000,
-        stock_quantity: 10,
-        image: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=400",
-      },
-    ],
-  },
-];
-
-type Variant = (typeof mockProducts)[0]["variants"][0];
-type CartItem = { variant: Variant; quantity: number };
-
+// ---------- HELPERS ----------
 function formatUGX(amount: number) {
   return new Intl.NumberFormat("en-UG", {
     style: "currency",
@@ -112,25 +27,81 @@ function formatUGX(amount: number) {
   }).format(amount);
 }
 
+function generateSKU(category: ProductCategory): string {
+  const prefix = category.substring(0, 3).toUpperCase();
+  const unique = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const num = Date.now().toString().slice(-4);
+  return `${prefix}-${unique}-${num}`;
+}
+
+function generateBarcode(): string {
+  return String(Date.now()).slice(-8);
+}
+
+// Group variants by product name for the grid display
+interface ProductGroup {
+  name: string;
+  category: ProductCategory;
+  image: string;
+  variants: Variant[];
+}
+
 export default function POSPage() {
+  const { variants, loading, addVariant } = useInventory();
+
+  // Group variants into products
+  const products = useMemo(() => {
+    const map = new Map<string, ProductGroup>();
+    variants.forEach((v) => {
+      const key = v.productName.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          name: v.productName,
+          category: v.category,
+          image: v.image,
+          variants: [],
+        });
+      }
+      map.get(key)!.variants.push(v);
+    });
+    return Array.from(map.values());
+  }, [variants]);
+
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<{ variant: Variant; quantity: number }[]>([]);
   const [scannedVariant, setScannedVariant] = useState<Variant | null>(null);
   const [scannerInput, setScannerInput] = useState("");
-  const scannerRef = useRef<HTMLInputElement>(null); // <-- THIS IS THE FIX
+  const scannerRef = useRef<HTMLInputElement>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mobile_money" | "card">("cash");
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [cashChange, setCashChange] = useState<number | null>(null);
 
+  // Camera capture state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [showCaptureModal, setShowCaptureModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [newProductForm, setNewProductForm] = useState({
+    productName: "",
+    category: "Dresses" as ProductCategory,
+    size: "",
+    color: "",
+    costPrice: 0,
+    sellingPrice: 0,
+    stock: 0,
+    lowStockThreshold: 5,
+    sku: "",
+    barcode: "",
+  });
+
   // Auto-focus scanner input on mount
   useEffect(() => {
     scannerRef.current?.focus();
   }, []);
 
-  // Keep focus on scanner after interactions
   const refocusScanner = () => setTimeout(() => scannerRef.current?.focus(), 0);
 
   // Scanner: capture barcode on Enter
@@ -139,9 +110,8 @@ export default function POSPage() {
       e.preventDefault();
       const code = scannerInput.trim();
       if (!code) return;
-      const found = mockProducts
-        .flatMap((p) => p.variants)
-        .find((v) => v.barcode === code);
+
+      const found = variants.find((v) => v.barcode === code);
       if (found) {
         setScannedVariant(found);
         addToCart(found);
@@ -158,7 +128,7 @@ export default function POSPage() {
     setCart((prev) => {
       const existing = prev.find((item) => item.variant.id === variant.id);
       if (existing) {
-        if (existing.quantity >= variant.stock_quantity) {
+        if (existing.quantity >= variant.stock) {
           alert("Not enough stock!");
           return prev;
         }
@@ -168,7 +138,7 @@ export default function POSPage() {
             : item
         );
       }
-      if (variant.stock_quantity <= 0) {
+      if (variant.stock <= 0) {
         alert("Out of stock!");
         return prev;
       }
@@ -188,19 +158,19 @@ export default function POSPage() {
           if (item.variant.id !== variantId) return item;
           const newQty = item.quantity + delta;
           if (newQty <= 0) return null;
-          if (newQty > item.variant.stock_quantity) {
-            alert(`Only ${item.variant.stock_quantity} in stock!`);
+          if (newQty > item.variant.stock) {
+            alert(`Only ${item.variant.stock} in stock!`);
             return item;
           }
           return { ...item, quantity: newQty };
         })
-        .filter(Boolean) as CartItem[]
+        .filter(Boolean) as { variant: Variant; quantity: number }[]
     );
     refocusScanner();
   };
 
   const filteredProducts = useMemo(() => {
-    return mockProducts.filter((product) => {
+    return products.filter((product) => {
       const matchesCategory =
         activeCategory === "All" || product.category === activeCategory;
       const query = searchQuery.toLowerCase();
@@ -214,10 +184,10 @@ export default function POSPage() {
         );
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, searchQuery]);
+  }, [products, activeCategory, searchQuery]);
 
   const subtotal = cart.reduce(
-    (sum, item) => sum + item.variant.selling_price * item.quantity,
+    (sum, item) => sum + item.variant.sellingPrice * item.quantity,
     0
   );
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -258,27 +228,111 @@ export default function POSPage() {
     refocusScanner();
   };
 
+  // Camera handlers
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      setCapturedImage(dataUrl);
+      setNewProductForm((prev) => ({
+        ...prev,
+        sku: generateSKU(prev.category),
+        barcode: generateBarcode(),
+      }));
+      setShowCaptureModal(true);
+    };
+    reader.readAsDataURL(file);
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleSaveNewProduct = async () => {
+    if (!newProductForm.productName || !newProductForm.size || !newProductForm.color || !capturedImage) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await addVariant({
+        productName: newProductForm.productName,
+        category: newProductForm.category,
+        image: capturedImage,
+        sku: newProductForm.sku || generateSKU(newProductForm.category),
+        barcode: newProductForm.barcode || generateBarcode(),
+        size: newProductForm.size,
+        color: newProductForm.color,
+        costPrice: newProductForm.costPrice,
+        sellingPrice: newProductForm.sellingPrice,
+        stock: newProductForm.stock,
+        lowStockThreshold: newProductForm.lowStockThreshold,
+      });
+
+      setShowCaptureModal(false);
+      setCapturedImage(null);
+      setNewProductForm({
+        productName: "",
+        category: "Dresses",
+        size: "",
+        color: "",
+        costPrice: 0,
+        sellingPrice: 0,
+        stock: 0,
+        lowStockThreshold: 5,
+        sku: "",
+        barcode: "",
+      });
+      refocusScanner();
+    } catch (error: any) {
+      alert(error.message || "Failed to add product");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const categories = ["All", "Dresses", "Outerwear", "Skirts", "Accessories"];
 
   return (
     <div className="grid h-full grid-cols-1 gap-6 lg:grid-cols-3">
       {/* LEFT: Product browser & scanner */}
       <div className="col-span-1 flex flex-col space-y-6 lg:col-span-2">
-        {/* Barcode Scanner Input */}
-        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
-            <Barcode className="h-4 w-4" /> Barcode Scanner
-          </label>
-          <input
-            ref={scannerRef}
-            type="text"
-            value={scannerInput}
-            onChange={(e) => setScannerInput(e.target.value)}
-            onKeyDown={handleScannerKeyDown}
-            placeholder="Scan or type barcode and press Enter..."
-            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
-            autoComplete="off"
-          />
+        {/* Barcode Scanner + Camera Button */}
+        <div className="flex gap-3">
+          <div className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+            <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
+              <Barcode className="h-4 w-4" /> Barcode Scanner
+            </label>
+            <input
+              ref={scannerRef}
+              type="text"
+              value={scannerInput}
+              onChange={(e) => setScannerInput(e.target.value)}
+              onKeyDown={handleScannerKeyDown}
+              placeholder="Scan or type barcode..."
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex items-end">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex flex-col items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Camera className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-xs mt-1 text-slate-600 dark:text-slate-400">Scan Item</span>
+            </button>
+          </div>
         </div>
 
         {/* Last Scanned Spotlight */}
@@ -293,16 +347,12 @@ export default function POSPage() {
               <div className="flex flex-1 flex-col justify-between p-4">
                 <div>
                   <p className="text-xs text-emerald-600 dark:text-emerald-400">Last Scanned</p>
-                  <h3 className="mt-1 text-lg font-bold">
-                    {mockProducts.find((p) =>
-                      p.variants.some((v) => v.id === scannedVariant.id)
-                    )?.name ?? "Unknown"}
-                  </h3>
+                  <h3 className="mt-1 text-lg font-bold">{scannedVariant.productName}</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {scannedVariant.color} / {scannedVariant.size}
                   </p>
                   <p className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                    {formatUGX(scannedVariant.selling_price)}
+                    {formatUGX(scannedVariant.sellingPrice)}
                   </p>
                 </div>
                 <div className="mt-2 flex items-center gap-4">
@@ -311,15 +361,15 @@ export default function POSPage() {
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      scannedVariant.stock_quantity > 5
+                      scannedVariant.stock > 5
                         ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
-                        : scannedVariant.stock_quantity > 0
+                        : scannedVariant.stock > 0
                         ? "bg-yellow-50 text-yellow-600 dark:bg-yellow-500/20 dark:text-yellow-400"
                         : "bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400"
                     }`}
                   >
-                    {scannedVariant.stock_quantity > 0
-                      ? `${scannedVariant.stock_quantity} in stock`
+                    {scannedVariant.stock > 0
+                      ? `${scannedVariant.stock} in stock`
                       : "Out of stock"}
                   </span>
                 </div>
@@ -349,7 +399,7 @@ export default function POSPage() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search dresses..."
+              placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 pl-10 pr-4 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none"
@@ -359,50 +409,58 @@ export default function POSPage() {
 
         {/* Product Grid */}
         <div className="grid flex-1 gap-4 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-          {filteredProducts.map((product) => (
-            <div
-              key={product.id}
-              className="flex flex-col overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
-            >
-              <img
-                src={product.image}
-                alt={product.name}
-                className="h-40 w-full object-cover"
-              />
-              <div className="flex flex-1 flex-col p-3">
-                <h4 className="font-medium">{product.name}</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{product.category}</p>
-                <div className="mt-2 space-y-1">
-                  {product.variants.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => addToCart(v)}
-                      disabled={v.stock_quantity <= 0}
-                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors ${
-                        v.stock_quantity > 0
-                          ? "hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
-                          : "opacity-50"
-                      }`}
-                    >
-                      <span>
-                        {v.color} / {v.size}
-                      </span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatUGX(v.selling_price)}
-                      </span>
-                      <span className="text-slate-400">
-                        ({v.stock_quantity} left)
-                      </span>
-                    </button>
-                  ))}
+          {loading ? (
+            <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-500">
+              <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mb-2" />
+              <p className="text-sm">Loading products...</p>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <p className="col-span-full py-8 text-center text-slate-500">
+              {variants.length === 0
+                ? "No products yet. Add items from the Inventory page or use the camera to scan a new item."
+                : "No products match your search."}
+            </p>
+          ) : (
+            filteredProducts.map((product) => (
+              <div
+                key={product.name}
+                className="flex flex-col overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+              >
+                <img
+                  src={product.image || "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=400"}
+                  alt={product.name}
+                  className="h-40 w-full object-cover"
+                />
+                <div className="flex flex-1 flex-col p-3">
+                  <h4 className="font-medium">{product.name}</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {product.category}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {product.variants.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => addToCart(v)}
+                        disabled={v.stock <= 0}
+                        className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors ${
+                          v.stock > 0
+                            ? "hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                            : "opacity-50"
+                        }`}
+                      >
+                        <span>
+                          {v.color} / {v.size}
+                        </span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatUGX(v.sellingPrice)}
+                        </span>
+                        <span className="text-slate-400">({v.stock} left)</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-          {filteredProducts.length === 0 && (
-            <p className="col-span-full py-8 text-center text-slate-500 dark:text-slate-500">
-              No products found.
-            </p>
+            ))
           )}
         </div>
       </div>
@@ -436,9 +494,11 @@ export default function POSPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">
+                      {variant.productName}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {variant.color} / {variant.size}
                     </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{variant.sku}</p>
                     <div className="mt-1 flex items-center gap-2">
                       <button
                         onClick={() => updateQuantity(variant.id, -1)}
@@ -457,7 +517,7 @@ export default function POSPage() {
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-emerald-600 dark:text-emerald-400">
-                      {formatUGX(variant.selling_price * quantity)}
+                      {formatUGX(variant.sellingPrice * quantity)}
                     </p>
                     <button
                       onClick={() => removeFromCart(variant.id)}
@@ -502,10 +562,11 @@ export default function POSPage() {
 
             <div className="mb-4 flex justify-between text-lg">
               <span>Total:</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(subtotal)}</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                {formatUGX(subtotal)}
+              </span>
             </div>
 
-            {/* Payment method selector */}
             <div className="mb-4 grid grid-cols-3 gap-2">
               {([
                 { id: "cash", label: "Cash", icon: Banknote },
@@ -518,7 +579,7 @@ export default function POSPage() {
                   className={`flex flex-col items-center rounded-md border p-3 transition-colors ${
                     paymentMethod === method.id
                       ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500"
+                      : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400"
                   }`}
                 >
                   <method.icon className="mb-1 h-5 w-5" />
@@ -561,7 +622,6 @@ export default function POSPage() {
       {showReceiptModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white text-slate-900">
-            {/* Receipt content (printable) */}
             <div id="receipt" className="p-6 text-xs">
               <div className="text-center">
                 <h2 className="text-lg font-bold">BoutiqueOS</h2>
@@ -582,11 +642,11 @@ export default function POSPage() {
                   {receiptData.items.map(({ variant, quantity }) => (
                     <tr key={variant.id}>
                       <td className="py-1">
-                        {variant.color}/{variant.size}
+                        {variant.productName} ({variant.color}/{variant.size})
                       </td>
                       <td className="text-right">{quantity}</td>
                       <td className="text-right">
-                        {formatUGX(variant.selling_price * quantity)}
+                        {formatUGX(variant.sellingPrice * quantity)}
                       </td>
                     </tr>
                   ))}
@@ -631,6 +691,73 @@ export default function POSPage() {
                 className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 py-2 text-sm text-white"
               >
                 <Printer className="h-4 w-4" /> Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== CAPTURE & ADD PRODUCT MODAL ===== */}
+      {showCaptureModal && capturedImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">Add Captured Item</h3>
+              <button onClick={() => setShowCaptureModal(false)}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <img
+                src={capturedImage}
+                alt="Captured"
+                className="w-full h-48 object-cover rounded-lg border"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Product Name *</label>
+                <input type="text" value={newProductForm.productName} onChange={(e) => setNewProductForm({ ...newProductForm, productName: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Category</label>
+                <select value={newProductForm.category} onChange={(e) => { const cat = e.target.value as ProductCategory; setNewProductForm({ ...newProductForm, category: cat, sku: generateSKU(cat) }); }} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none">
+                  <option>Dresses</option><option>Outerwear</option><option>Skirts</option><option>Accessories</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">SKU (auto)</label>
+                <input type="text" value={newProductForm.sku} onChange={(e) => setNewProductForm({ ...newProductForm, sku: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Barcode (auto)</label>
+                <input type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Size *</label>
+                <input type="text" value={newProductForm.size} onChange={(e) => setNewProductForm({ ...newProductForm, size: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Color *</label>
+                <input type="text" value={newProductForm.color} onChange={(e) => setNewProductForm({ ...newProductForm, color: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Selling Price (UGX) *</label>
+                <input type="number" value={newProductForm.sellingPrice || ""} onChange={(e) => setNewProductForm({ ...newProductForm, sellingPrice: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Stock Qty</label>
+                <input type="number" value={newProductForm.stock || ""} onChange={(e) => setNewProductForm({ ...newProductForm, stock: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setShowCaptureModal(false)} className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 py-2 text-sm text-slate-700 dark:text-slate-300">Cancel</button>
+              <button onClick={handleSaveNewProduct} disabled={saving} className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {saving ? "Saving..." : "Add to Inventory"}
               </button>
             </div>
           </div>

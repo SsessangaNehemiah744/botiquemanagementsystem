@@ -54,10 +54,11 @@ export default function DashboardLayout({
 
   // User state
   const [userEmail, setUserEmail] = useState("");
-  const [userName, setUserName] = useState("Admin User");
+  const [userName, setUserName] = useState("Loading...");
   const [userRole, setUserRole] = useState<UserRole>("admin");
   const [userCreatedAt, setUserCreatedAt] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [sessionLoading, setSessionLoading] = useState(true);
 
   // Dropdown state
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -70,14 +71,29 @@ export default function DashboardLayout({
 
   const supabase = createClient();
 
-  // Fetch user data on mount
+  // Fetch user data and refresh session on mount
   useEffect(() => {
     async function getUser() {
-      const { data: { user } } = await supabase.auth.getUser();
+      setSessionLoading(true);
+
+      // Refresh the session first
+      const { data: { session }, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        console.log("No valid session, redirecting to login...");
+        router.push("/login");
+        return;
+      }
+
+      const user = session.user;
+
       if (user) {
         setUserEmail(user.email || "");
         setUserName(
-          user.user_metadata?.full_name || user.email?.split("@")[0] || "User"
+          user.user_metadata?.full_name ||
+            user.email?.split("@")[0] ||
+            "User"
         );
         setUserCreatedAt(user.created_at || "");
 
@@ -94,9 +110,25 @@ export default function DashboardLayout({
           if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
         }
       }
+
+      setSessionLoading(false);
     }
+
     getUser();
-  }, []);
+
+    // Listen for auth state changes (e.g., token refresh)
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session) {
+          router.push("/login");
+        }
+      }
+    );
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
+  }, [supabase, router]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -162,6 +194,18 @@ export default function DashboardLayout({
       day: "numeric",
     });
   };
+
+  // Show loading state while checking session
+  if (sessionLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-white dark:bg-slate-950">
+        <div className="text-center">
+          <ShoppingCart className="mx-auto h-10 w-10 text-emerald-500 animate-pulse" />
+          <p className="mt-4 text-sm text-slate-500">Loading BoutiqueOS...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -242,7 +286,8 @@ export default function DashboardLayout({
             {/* Footer */}
             <div className="border-t border-slate-200 dark:border-slate-800 p-3 flex justify-between items-center">
               <span className="text-xs text-slate-400">
-                {filteredVariants.length} item{filteredVariants.length !== 1 ? "s" : ""}
+                {filteredVariants.length} item
+                {filteredVariants.length !== 1 ? "s" : ""}
               </span>
               <Link
                 href="/dashboard/inventory"
@@ -450,8 +495,6 @@ export default function DashboardLayout({
                       <button
                         onClick={() => {
                           setUserMenuOpen(false);
-                          // Navigate to settings (you can create this page later)
-                          // router.push("/dashboard/settings");
                         }}
                         className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       >
