@@ -41,11 +41,15 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
 
+// Helper to add notification without relying on state setter
+let addNotificationGlobal: ((notification: Omit<Notification, "id" | "time" | "read">) => void) | null = null;
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const supabase = createClient();
   const channelRef = useRef<any>(null);
+  const productChannelRef = useRef<any>(null);
 
   // Fetch initial notifications from localStorage
   useEffect(() => {
@@ -64,8 +68,31 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     localStorage.setItem("boutiqueos-notifications", JSON.stringify(notifications));
   }, [notifications]);
 
+  const addNotificationLocal = useCallback(
+    (notification: Omit<Notification, "id" | "time" | "read">) => {
+      const newNotification: Notification = {
+        ...notification,
+        id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        time: new Date().toISOString(),
+        read: false,
+      };
+      setNotifications((prev) => [newNotification, ...prev].slice(0, 50));
+    },
+    []
+  );
+
+  // Store the function globally so presence callbacks can use it
+  useEffect(() => {
+    addNotificationGlobal = addNotificationLocal;
+    return () => {
+      addNotificationGlobal = null;
+    };
+  }, [addNotificationLocal]);
+
   // Track current user's presence
   useEffect(() => {
+    let channel: any = null;
+
     async function setupPresence() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -84,7 +111,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         lastSeen: new Date().toISOString(),
       };
 
-      const channel = supabase.channel("online-users", {
+      // Create channel with all callbacks BEFORE subscribing
+      channel = supabase.channel("online-users", {
         config: {
           presence: {
             key: user.id,
@@ -92,55 +120,57 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         },
       });
 
-      channel
-        .on("presence", { event: "sync" }, () => {
-          const state = channel.presenceState();
-          const users: OnlineUser[] = [];
-          Object.values(state).forEach((presences: any) => {
-            presences.forEach((presence: any) => {
-              if (!users.find((u) => u.id === presence.id)) {
-                users.push(presence);
-              }
-            });
+      // Set up all event listeners before subscribe
+      channel.on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        const users: OnlineUser[] = [];
+        Object.values(state).forEach((presences: any) => {
+          presences.forEach((presence: any) => {
+            if (!users.find((u) => u.id === presence.id)) {
+              users.push(presence);
+            }
           });
-          setOnlineUsers(users);
-        })
-        .on("presence", { event: "join" }, ({ newPresences }: any) => {
-          const newUser = newPresences[0];
-          if (newUser && newUser.id !== user.id) {
-            addNotificationLocal({
-              type: "login",
-              title: "User Online",
-              message: `${newUser.name} is now online`,
-              user: newUser.name,
-            });
-          }
-        })
-        .on("presence", { event: "leave" }, ({ leftPresences }: any) => {
-          const leftUser = leftPresences[0];
-          if (leftUser) {
-            addNotificationLocal({
-              type: "logout",
-              title: "User Offline",
-              message: `${leftUser.name} went offline`,
-              user: leftUser.name,
-            });
-          }
-        })
-        .subscribe(async (status: string) => {
-          if (status === "SUBSCRIBED") {
-            await channel.track(userData);
-          }
         });
+        setOnlineUsers(users);
+      });
 
-      channelRef.current = channel;
+      channel.on("presence", { event: "join" }, ({ newPresences }: any) => {
+        const newUser = newPresences[0];
+        if (newUser && newUser.id !== user.id && addNotificationGlobal) {
+          addNotificationGlobal({
+            type: "login",
+            title: "User Online",
+            message: `${newUser.name} is now online`,
+            user: newUser.name,
+          });
+        }
+      });
+
+      channel.on("presence", { event: "leave" }, ({ leftPresences }: any) => {
+        const leftUser = leftPresences[0];
+        if (leftUser && addNotificationGlobal) {
+          addNotificationGlobal({
+            type: "logout",
+            title: "User Offline",
+            message: `${leftUser.name} went offline`,
+            user: leftUser.name,
+          });
+        }
+      });
+
+      // Subscribe AFTER all callbacks are set
+      channel.subscribe(async (status: string) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track(userData);
+        }
+      });
     }
 
     setupPresence();
 
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+      if (channel) {
+        supabase.removeChannel(channel);
       }
     };
   }, []);
@@ -153,32 +183,25 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "product_variants" },
         (payload: any) => {
-          addNotificationLocal({
-            type: "product",
-            title: "New Product Added",
-            message: `${payload.new?.sku || "Unknown"} was added to inventory`,
-          });
+          if (addNotificationGlobal) {
+            addNotificationGlobal({
+              type: "product",
+              title: "New Product Added",
+              message: `${payload.new?.sku || "Unknown"} was added to inventory`,
+            });
+          }
         }
       )
       .subscribe();
 
+    productChannelRef.current = productChannel;
+
     return () => {
-      supabase.removeChannel(productChannel);
+      if (productChannelRef.current) {
+        supabase.removeChannel(productChannelRef.current);
+      }
     };
   }, []);
-
-  const addNotificationLocal = useCallback(
-    (notification: Omit<Notification, "id" | "time" | "read">) => {
-      const newNotification: Notification = {
-        ...notification,
-        id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        time: new Date().toISOString(),
-        read: false,
-      };
-      setNotifications((prev) => [newNotification, ...prev].slice(0, 50));
-    },
-    []
-  );
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
