@@ -38,7 +38,24 @@ function generateBarcode(): string {
   return String(Date.now()).slice(-8);
 }
 
-// Group variants by product name for the grid display
+// ---------- UPDATED CATEGORIES ----------
+const CATEGORIES: ProductCategory[] = [
+  "Wideleg",
+  "Straight",
+  "Short",
+  "Patras",
+  "Boyfriend Shorts",
+  "Jorts",
+  "Short Dresses",
+  "Long Dresses",
+  "Short Skirts",
+  "Medium Skirts",
+  "Long Skirt",
+  "Jean Jacket",
+  "Leather Jacket Sleeveless",
+  "Low waist",
+];
+
 interface ProductGroup {
   name: string;
   category: ProductCategory;
@@ -49,7 +66,6 @@ interface ProductGroup {
 export default function POSPage() {
   const { variants, loading, addVariant } = useInventory();
 
-  // Group variants into products
   const products = useMemo(() => {
     const map = new Map<string, ProductGroup>();
     variants.forEach((v) => {
@@ -79,16 +95,16 @@ export default function POSPage() {
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [cashChange, setCashChange] = useState<number | null>(null);
 
-  // Camera capture state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showCaptureModal, setShowCaptureModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newProductForm, setNewProductForm] = useState({
     productName: "",
-    category: "Dresses" as ProductCategory,
+    category: CATEGORIES[0],
     size: "",
     color: "",
+    design: "",
     costPrice: 0,
     sellingPrice: 0,
     stock: 0,
@@ -97,14 +113,12 @@ export default function POSPage() {
     barcode: "",
   });
 
-  // Auto-focus scanner input on mount
   useEffect(() => {
     scannerRef.current?.focus();
   }, []);
 
   const refocusScanner = () => setTimeout(() => scannerRef.current?.focus(), 0);
 
-  // Scanner: capture barcode on Enter
   const handleScannerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -228,7 +242,6 @@ export default function POSPage() {
     refocusScanner();
   };
 
-  // Camera handlers
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -265,6 +278,7 @@ export default function POSPage() {
         barcode: newProductForm.barcode || generateBarcode(),
         size: newProductForm.size,
         color: newProductForm.color,
+        design: newProductForm.design || "",
         costPrice: newProductForm.costPrice,
         sellingPrice: newProductForm.sellingPrice,
         stock: newProductForm.stock,
@@ -275,9 +289,10 @@ export default function POSPage() {
       setCapturedImage(null);
       setNewProductForm({
         productName: "",
-        category: "Dresses",
+        category: CATEGORIES[0],
         size: "",
         color: "",
+        design: "",
         costPrice: 0,
         sellingPrice: 0,
         stock: 0,
@@ -293,13 +308,14 @@ export default function POSPage() {
     }
   };
 
-  const categories = ["All", "Dresses", "Outerwear", "Skirts", "Accessories"];
+  // Category tabs — "All" + all categories
+  const categoryTabs = ["All", ...CATEGORIES];
 
   return (
     <div className="grid h-full grid-cols-1 gap-6 lg:grid-cols-3">
       {/* LEFT: Product browser & scanner */}
       <div className="col-span-1 flex flex-col space-y-6 lg:col-span-2">
-        {/* Barcode Scanner + Camera Button - Same Level */}
+        {/* Barcode Scanner + Camera Button */}
         <div className="flex items-stretch gap-3">
           <div className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex flex-col">
             <label className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
@@ -317,7 +333,6 @@ export default function POSPage() {
             />
           </div>
           
-          {/* Scan Item Button */}
           <div className="flex-shrink-0">
             <input
               ref={fileInputRef}
@@ -383,11 +398,11 @@ export default function POSPage() {
         {/* Category Tabs & Search */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 dark:bg-slate-900 p-1">
-            {categories.map((cat) => (
+            {categoryTabs.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   activeCategory === cat
                     ? "bg-emerald-500 text-white"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -419,7 +434,7 @@ export default function POSPage() {
           ) : filteredProducts.length === 0 ? (
             <p className="col-span-full py-8 text-center text-slate-500">
               {variants.length === 0
-                ? "No products yet. Add items from the Inventory page or use the camera to scan a new item."
+                ? "No products yet."
                 : "No products match your search."}
             </p>
           ) : (
@@ -502,17 +517,11 @@ export default function POSPage() {
                       {variant.color} / {variant.size}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                      <button
-                        onClick={() => updateQuantity(variant.id, -1)}
-                        className="rounded p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700"
-                      >
+                      <button onClick={() => updateQuantity(variant.id, -1)} className="rounded p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700">
                         <Minus className="h-3 w-3" />
                       </button>
                       <span className="text-sm font-bold">{quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(variant.id, 1)}
-                        className="rounded p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700"
-                      >
+                      <button onClick={() => updateQuantity(variant.id, 1)} className="rounded p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700">
                         <Plus className="h-3 w-3" />
                       </button>
                     </div>
@@ -521,10 +530,7 @@ export default function POSPage() {
                     <p className="font-bold text-emerald-600 dark:text-emerald-400">
                       {formatUGX(variant.sellingPrice * quantity)}
                     </p>
-                    <button
-                      onClick={() => removeFromCart(variant.id)}
-                      className="mt-1 text-red-500 hover:text-red-400"
-                    >
+                    <button onClick={() => removeFromCart(variant.id)} className="mt-1 text-red-500 hover:text-red-400">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -557,65 +563,34 @@ export default function POSPage() {
           <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-bold">Payment</h3>
-              <button onClick={() => setShowPaymentModal(false)}>
-                <X className="h-5 w-5" />
-              </button>
+              <button onClick={() => setShowPaymentModal(false)}><X className="h-5 w-5" /></button>
             </div>
-
             <div className="mb-4 flex justify-between text-lg">
               <span>Total:</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                {formatUGX(subtotal)}
-              </span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(subtotal)}</span>
             </div>
-
             <div className="mb-4 grid grid-cols-3 gap-2">
               {([
                 { id: "cash", label: "Cash", icon: Banknote },
                 { id: "mobile_money", label: "Mobile", icon: Smartphone },
                 { id: "card", label: "Card", icon: CreditCard },
               ] as const).map((method) => (
-                <button
-                  key={method.id}
-                  onClick={() => setPaymentMethod(method.id)}
-                  className={`flex flex-col items-center rounded-md border p-3 transition-colors ${
-                    paymentMethod === method.id
-                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400"
-                  }`}
-                >
+                <button key={method.id} onClick={() => setPaymentMethod(method.id)} className={`flex flex-col items-center rounded-md border p-3 transition-colors ${paymentMethod === method.id ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400"}`}>
                   <method.icon className="mb-1 h-5 w-5" />
                   <span className="text-xs">{method.label}</span>
                 </button>
               ))}
             </div>
-
             {paymentMethod === "cash" && (
               <div className="mb-4">
-                <label className="mb-1 block text-sm text-slate-600 dark:text-slate-400">
-                  Amount Tendered
-                </label>
-                <input
-                  type="number"
-                  value={amountTendered}
-                  onChange={(e) => setAmountTendered(Number(e.target.value))}
-                  className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
-                />
+                <label className="mb-1 block text-sm text-slate-600 dark:text-slate-400">Amount Tendered</label>
+                <input type="number" value={amountTendered} onChange={(e) => setAmountTendered(Number(e.target.value))} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
                 {amountTendered > 0 && amountTendered >= subtotal && (
-                  <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">
-                    Change: {formatUGX(amountTendered - subtotal)}
-                  </p>
+                  <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">Change: {formatUGX(amountTendered - subtotal)}</p>
                 )}
               </div>
             )}
-
-            <button
-              onClick={completePayment}
-              disabled={paymentMethod === "cash" && amountTendered < subtotal}
-              className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-            >
-              Complete Sale
-            </button>
+            <button onClick={completePayment} disabled={paymentMethod === "cash" && amountTendered < subtotal} className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50">Complete Sale</button>
           </div>
         </div>
       )}
@@ -633,67 +608,30 @@ export default function POSPage() {
               </div>
               <hr className="my-2 border-dashed" />
               <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left">Item</th>
-                    <th className="text-right">Qty</th>
-                    <th className="text-right">Price</th>
-                  </tr>
-                </thead>
+                <thead><tr className="border-b"><th className="text-left">Item</th><th className="text-right">Qty</th><th className="text-right">Price</th></tr></thead>
                 <tbody>
                   {receiptData.items.map(({ variant, quantity }) => (
                     <tr key={variant.id}>
-                      <td className="py-1">
-                        {variant.productName} ({variant.color}/{variant.size})
-                      </td>
+                      <td className="py-1">{variant.productName} ({variant.color}/{variant.size})</td>
                       <td className="text-right">{quantity}</td>
-                      <td className="text-right">
-                        {formatUGX(variant.sellingPrice * quantity)}
-                      </td>
+                      <td className="text-right">{formatUGX(variant.sellingPrice * quantity)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <hr className="my-2 border-dashed" />
-              <div className="flex justify-between font-bold">
-                <span>TOTAL:</span>
-                <span>{formatUGX(receiptData.subtotal)}</span>
-              </div>
+              <div className="flex justify-between font-bold"><span>TOTAL:</span><span>{formatUGX(receiptData.subtotal)}</span></div>
               <div className="mt-1 text-center">
-                Payment:{" "}
-                {receiptData.paymentMethod === "cash"
-                  ? "Cash"
-                  : receiptData.paymentMethod === "mobile_money"
-                  ? "Mobile Money"
-                  : "Card"}
-                {receiptData.amountTendered != null && (
-                  <p>Tendered: {formatUGX(receiptData.amountTendered)}</p>
-                )}
-                {receiptData.change != null && (
-                  <p>Change: {formatUGX(receiptData.change)}</p>
-                )}
+                Payment: {receiptData.paymentMethod === "cash" ? "Cash" : receiptData.paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}
+                {receiptData.amountTendered != null && <p>Tendered: {formatUGX(receiptData.amountTendered)}</p>}
+                {receiptData.change != null && <p>Change: {formatUGX(receiptData.change)}</p>}
               </div>
               <hr className="my-2 border-dashed" />
               <p className="text-center">Thank you for shopping!</p>
             </div>
             <div className="flex gap-2 border-t border-slate-200 p-4">
-              <button
-                onClick={() => {
-                  setShowReceiptModal(false);
-                  setCart([]);
-                  setScannedVariant(null);
-                  refocusScanner();
-                }}
-                className="flex-1 rounded-md border border-slate-300 py-2 text-sm"
-              >
-                Close
-              </button>
-              <button
-                onClick={printReceipt}
-                className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 py-2 text-sm text-white"
-              >
-                <Printer className="h-4 w-4" /> Print
-              </button>
+              <button onClick={() => { setShowReceiptModal(false); setCart([]); setScannedVariant(null); refocusScanner(); }} className="flex-1 rounded-md border border-slate-300 py-2 text-sm">Close</button>
+              <button onClick={printReceipt} className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 py-2 text-sm text-white"><Printer className="h-4 w-4" /> Print</button>
             </div>
           </div>
         </div>
@@ -705,61 +643,37 @@ export default function POSPage() {
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold">Add Captured Item</h3>
-              <button onClick={() => setShowCaptureModal(false)}>
-                <X className="h-5 w-5" />
-              </button>
+              <button onClick={() => setShowCaptureModal(false)}><X className="h-5 w-5" /></button>
             </div>
-
             <div className="mb-4">
-              <img
-                src={capturedImage}
-                alt="Captured"
-                className="w-full h-48 object-cover rounded-lg border"
-              />
+              <img src={capturedImage} alt="Captured" className="w-full h-48 object-cover rounded-lg border" />
             </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Product Name *</label>
-                <input type="text" value={newProductForm.productName} onChange={(e) => setNewProductForm({ ...newProductForm, productName: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+                <label className="block text-sm mb-1">Product Name *</label>
+                <input type="text" value={newProductForm.productName} onChange={(e) => setNewProductForm({ ...newProductForm, productName: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Category</label>
-                <select value={newProductForm.category} onChange={(e) => { const cat = e.target.value as ProductCategory; setNewProductForm({ ...newProductForm, category: cat, sku: generateSKU(cat) }); }} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none">
-                  <option>Dresses</option><option>Outerwear</option><option>Skirts</option><option>Accessories</option>
+                <label className="block text-sm mb-1">Category</label>
+                <select value={newProductForm.category} onChange={(e) => { const cat = e.target.value as ProductCategory; setNewProductForm({ ...newProductForm, category: cat, sku: generateSKU(cat) }); }} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm">
+                  {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">SKU (auto)</label>
-                <input type="text" value={newProductForm.sku} onChange={(e) => setNewProductForm({ ...newProductForm, sku: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
+                <label className="block text-sm mb-1">Design</label>
+                <input type="text" value={newProductForm.design} onChange={(e) => setNewProductForm({ ...newProductForm, design: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" placeholder="e.g., Floral, Plain" />
               </div>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Barcode (auto)</label>
-                <input type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Size *</label>
-                <input type="text" value={newProductForm.size} onChange={(e) => setNewProductForm({ ...newProductForm, size: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Color *</label>
-                <input type="text" value={newProductForm.color} onChange={(e) => setNewProductForm({ ...newProductForm, color: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Selling Price (UGX) *</label>
-                <input type="number" value={newProductForm.sellingPrice || ""} onChange={(e) => setNewProductForm({ ...newProductForm, sellingPrice: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Stock Qty</label>
-                <input type="number" value={newProductForm.stock || ""} onChange={(e) => setNewProductForm({ ...newProductForm, stock: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-              </div>
+              <div><label className="block text-sm mb-1">SKU (auto)</label><input type="text" value={newProductForm.sku} onChange={(e) => setNewProductForm({ ...newProductForm, sku: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
+              <div><label className="block text-sm mb-1">Barcode (auto)</label><input type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
+              <div><label className="block text-sm mb-1">Size *</label><input type="text" value={newProductForm.size} onChange={(e) => setNewProductForm({ ...newProductForm, size: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
+              <div><label className="block text-sm mb-1">Colour *</label><input type="text" value={newProductForm.color} onChange={(e) => setNewProductForm({ ...newProductForm, color: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
+              <div><label className="block text-sm mb-1">Selling Price (UGX) *</label><input type="number" value={newProductForm.sellingPrice || ""} onChange={(e) => setNewProductForm({ ...newProductForm, sellingPrice: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
+              <div><label className="block text-sm mb-1">Stock Qty</label><input type="number" value={newProductForm.stock || ""} onChange={(e) => setNewProductForm({ ...newProductForm, stock: Number(e.target.value) })} className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm" /></div>
             </div>
-
             <div className="mt-6 flex gap-2">
-              <button onClick={() => setShowCaptureModal(false)} className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 py-2 text-sm text-slate-700 dark:text-slate-300">Cancel</button>
+              <button onClick={() => setShowCaptureModal(false)} className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 py-2 text-sm">Cancel</button>
               <button onClick={handleSaveNewProduct} disabled={saving} className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2">
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                {saving ? "Saving..." : "Add to Inventory"}
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Saving..." : "Add to Inventory"}
               </button>
             </div>
           </div>

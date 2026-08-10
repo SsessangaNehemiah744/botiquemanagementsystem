@@ -9,11 +9,22 @@ import React, {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+// ---------- UPDATED CATEGORIES ----------
 export type ProductCategory =
-  | "Dresses"
-  | "Outerwear"
-  | "Skirts"
-  | "Accessories";
+  | "Wideleg"
+  | "Straight"
+  | "Short"
+  | "Patras"
+  | "Boyfriend Shorts"
+  | "Jorts"
+  | "Short Dresses"
+  | "Long Dresses"
+  | "Short Skirts"
+  | "Medium Skirts"
+  | "Long Skirt"
+  | "Jean Jacket"
+  | "Leather Jacket Sleeveless"
+  | "Low waist";
 
 export interface Variant {
   id: string;
@@ -25,6 +36,7 @@ export interface Variant {
   barcode: string;
   size: string;
   color: string;
+  design?: string;
   costPrice: number;
   sellingPrice: number;
   stock: number;
@@ -49,23 +61,20 @@ async function uploadImageToStorage(
   base64Data: string,
   fileName: string
 ): Promise<string | null> {
-  // If it's already a URL (not base64), return it as-is
   if (!base64Data.startsWith("data:")) {
     return base64Data;
   }
 
-  // Extract the base64 data and mime type
   const matches = base64Data.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!matches) {
     console.error("Invalid base64 format");
     return null;
   }
 
-  const mimeType = matches[1]; // e.g., "image/png"
+  const mimeType = matches[1];
   const base64Content = matches[2];
-  const extension = mimeType.split("/")[1]; // e.g., "png"
+  const extension = mimeType.split("/")[1];
 
-  // Convert base64 to blob
   const byteCharacters = atob(base64Content);
   const byteNumbers = new Array(byteCharacters.length);
   for (let i = 0; i < byteCharacters.length; i++) {
@@ -74,7 +83,6 @@ async function uploadImageToStorage(
   const byteArray = new Uint8Array(byteNumbers);
   const blob = new Blob([byteArray], { type: mimeType });
 
-  // Upload to Supabase Storage
   const filePath = `${Date.now()}-${fileName}.${extension}`;
   const { error } = await supabase.storage
     .from("products")
@@ -88,7 +96,6 @@ async function uploadImageToStorage(
     return null;
   }
 
-  // Get the public URL
   const { data: urlData } = supabase.storage
     .from("products")
     .getPublicUrl(filePath);
@@ -101,7 +108,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
-  // Fetch variants on mount
   const fetchVariants = useCallback(async () => {
     setLoading(true);
 
@@ -120,12 +126,13 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       id: v.id,
       product_id: v.product_id,
       productName: v.products?.name || "Unknown",
-      category: v.products?.category || "Dresses",
+      category: (v.products?.category || "Wideleg") as ProductCategory,
       image: v.image_url || v.products?.image_url || "",
       sku: v.sku,
       barcode: v.barcode || "",
       size: v.size,
       color: v.color,
+      design: v.design || "",
       costPrice: v.cost_price,
       sellingPrice: v.selling_price,
       stock: v.stock_quantity,
@@ -141,10 +148,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     fetchVariants();
   }, [fetchVariants]);
 
-  // Add new variant
   const addVariant = useCallback(
     async (newVariant: Omit<Variant, "id" | "product_id" | "created_at">) => {
-      // Step 1: Upload image if it's a base64 data URL
       let imageUrl = newVariant.image;
       if (imageUrl && imageUrl.startsWith("data:")) {
         const safeFileName = newVariant.productName
@@ -161,7 +166,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Step 2: Check if product already exists
       const { data: existingProduct } = await supabase
         .from("products")
         .select("id")
@@ -173,7 +177,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       if (existingProduct) {
         productId = existingProduct.id;
       } else {
-        // Create new product
         const productData: any = {
           name: newVariant.productName,
           category: newVariant.category,
@@ -196,12 +199,12 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         productId = newProduct.id;
       }
 
-      // Step 3: Insert variant
       const variantData: any = {
         product_id: productId,
         sku: newVariant.sku,
         size: newVariant.size,
         color: newVariant.color,
+        design: newVariant.design || null,
         cost_price: newVariant.costPrice,
         selling_price: newVariant.sellingPrice,
         stock_quantity: newVariant.stock,
@@ -220,13 +223,11 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         throw new Error(`Failed to create variant: ${variantError.message}`);
       }
 
-      // Refresh the list
       await fetchVariants();
     },
     [supabase, fetchVariants]
   );
 
-  // Update variant
   const updateVariant = useCallback(
     async (id: string, data: Partial<Variant>) => {
       const updates: any = {};
@@ -234,13 +235,13 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       if (data.barcode !== undefined) updates.barcode = data.barcode;
       if (data.size !== undefined) updates.size = data.size;
       if (data.color !== undefined) updates.color = data.color;
+      if (data.design !== undefined) updates.design = data.design;
       if (data.costPrice !== undefined) updates.cost_price = data.costPrice;
       if (data.sellingPrice !== undefined) updates.selling_price = data.sellingPrice;
       if (data.stock !== undefined) updates.stock_quantity = data.stock;
       if (data.lowStockThreshold !== undefined)
         updates.low_stock_threshold = data.lowStockThreshold;
 
-      // If image is a base64, upload it
       if (data.image && data.image.startsWith("data:")) {
         const safeFileName = (data.productName || "variant")
           .toLowerCase()
@@ -273,7 +274,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     [supabase, fetchVariants]
   );
 
-  // Adjust stock
   const adjustStock = useCallback(
     async (id: string, delta: number) => {
       const variant = variants.find((v) => v.id === id);
@@ -296,7 +296,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     [variants, supabase, fetchVariants]
   );
 
-  // Delete variant
   const deleteVariant = useCallback(
     async (id: string) => {
       const { error } = await supabase
