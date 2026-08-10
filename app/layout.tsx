@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { InventoryProvider } from "@/context/InventoryContext";
+import { NotificationProvider } from "@/context/NotificationContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,7 +19,9 @@ export default function RootLayout({
       <head />
       <body className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased">
         <ThemeProvider>
-          <InventoryProvider>{children}</InventoryProvider>
+          <InventoryProvider>
+            <NotificationProvider>{children}</NotificationProvider>
+          </InventoryProvider>
         </ThemeProvider>
       </body>
     </html>

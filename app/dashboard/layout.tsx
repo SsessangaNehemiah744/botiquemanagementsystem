@@ -24,9 +24,11 @@ import {
   Mail,
   Shield,
   Calendar,
+  ShoppingBag,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { createClient } from "@/lib/supabase/client";
 
 type UserRole = "admin" | "cashier" | "storekeeper" | "accountant";
@@ -51,6 +53,15 @@ export default function DashboardLayout({
   const [role, setRole] = useState<UserRole>("admin");
   const { theme, toggleTheme } = useTheme();
   const { variants } = useInventory();
+  const {
+    notifications,
+    unreadCount,
+    onlineUsers,
+    onlineCount,
+    markAllRead,
+    markAsRead,
+    addNotification,
+  } = useNotifications();
 
   // User state
   const [userEmail, setUserEmail] = useState("");
@@ -60,9 +71,11 @@ export default function DashboardLayout({
   const [avatarUrl, setAvatarUrl] = useState("");
   const [sessionLoading, setSessionLoading] = useState(true);
 
-  // Dropdown state
+  // Dropdown states
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   // Global search modal state
   const [searchOpen, setSearchOpen] = useState(false);
@@ -76,12 +89,12 @@ export default function DashboardLayout({
     async function getUser() {
       setSessionLoading(true);
 
-      // Refresh the session first
-      const { data: { session }, error: sessionError } =
-        await supabase.auth.getSession();
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
       if (sessionError || !session) {
-        console.log("No valid session, redirecting to login...");
         router.push("/login");
         return;
       }
@@ -97,7 +110,6 @@ export default function DashboardLayout({
         );
         setUserCreatedAt(user.created_at || "");
 
-        // Fetch profile for role and avatar
         const { data: profile } = await supabase
           .from("profiles")
           .select("role, avatar_url")
@@ -116,7 +128,6 @@ export default function DashboardLayout({
 
     getUser();
 
-    // Listen for auth state changes (e.g., token refresh)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!session) {
@@ -130,7 +141,7 @@ export default function DashboardLayout({
     };
   }, [supabase, router]);
 
-  // Close user menu when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -138,6 +149,12 @@ export default function DashboardLayout({
         !userMenuRef.current.contains(event.target as Node)
       ) {
         setUserMenuOpen(false);
+      }
+      if (
+        notifRef.current &&
+        !notifRef.current.contains(event.target as Node)
+      ) {
+        setNotifOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -195,6 +212,37 @@ export default function DashboardLayout({
     });
   };
 
+  const formatNotifTime = (timeStr: string) => {
+    const date = new Date(timeStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    return date.toLocaleDateString();
+  };
+
+  const getNotifIcon = (type: string) => {
+    switch (type) {
+      case "sale":
+        return <ShoppingBag className="h-4 w-4 text-emerald-500" />;
+      case "stock":
+      case "product":
+        return <Package className="h-4 w-4 text-blue-500" />;
+      case "login":
+        return <User className="h-4 w-4 text-green-500" />;
+      case "logout":
+        return <User className="h-4 w-4 text-slate-400" />;
+      default:
+        return <Bell className="h-4 w-4 text-slate-400" />;
+    }
+  };
+
   // Show loading state while checking session
   if (sessionLoading) {
     return (
@@ -213,7 +261,6 @@ export default function DashboardLayout({
       {searchOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
-            {/* Search input */}
             <div className="flex items-center gap-3 p-4 border-b border-slate-200 dark:border-slate-800">
               <Search className="h-5 w-5 text-slate-400" />
               <input
@@ -231,8 +278,6 @@ export default function DashboardLayout({
                 <X className="h-5 w-5" />
               </button>
             </div>
-
-            {/* Results list */}
             <div className="max-h-96 overflow-y-auto p-2">
               {searchQuery.trim() === "" ? (
                 <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">
@@ -282,8 +327,6 @@ export default function DashboardLayout({
                 </ul>
               )}
             </div>
-
-            {/* Footer */}
             <div className="border-t border-slate-200 dark:border-slate-800 p-3 flex justify-between items-center">
               <span className="text-xs text-slate-400">
                 {filteredVariants.length} item
@@ -317,7 +360,6 @@ export default function DashboardLayout({
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          {/* Logo */}
           <div className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 px-6">
             <Link
               href="/dashboard"
@@ -334,7 +376,6 @@ export default function DashboardLayout({
             </button>
           </div>
 
-          {/* Navigation */}
           <nav className="flex-1 overflow-y-auto py-4">
             {sidebarItems.map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
@@ -355,7 +396,6 @@ export default function DashboardLayout({
             })}
           </nav>
 
-          {/* Role Switcher (mock) */}
           <div className="border-t border-slate-200 dark:border-slate-800 p-4">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Role (mock)
@@ -391,11 +431,10 @@ export default function DashboardLayout({
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Global Search Button */}
+              {/* Global Search */}
               <button
                 onClick={handleOpenSearch}
                 className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                aria-label="Search inventory"
               >
                 <Search className="h-5 w-5 text-slate-400" />
               </button>
@@ -404,7 +443,6 @@ export default function DashboardLayout({
               <button
                 onClick={toggleTheme}
                 className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                aria-label="Toggle theme"
               >
                 {theme === "dark" ? (
                   <Sun className="h-5 w-5 text-yellow-500" />
@@ -413,16 +451,111 @@ export default function DashboardLayout({
                 )}
               </button>
 
-              {/* Notifications */}
-              <button className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative">
-                <Bell className="h-5 w-5 text-slate-400" />
-                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-emerald-400" />
-              </button>
+              {/* ===== NOTIFICATIONS ===== */}
+              <div className="relative" ref={notifRef}>
+                <button
+                  onClick={() => {
+                    setNotifOpen(!notifOpen);
+                    setUserMenuOpen(false);
+                  }}
+                  className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative transition-colors"
+                >
+                  <Bell
+                    className={`h-5 w-5 ${
+                      unreadCount > 0
+                        ? "text-emerald-500 animate-pulse"
+                        : "text-slate-400"
+                    }`}
+                  />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
 
-              {/* User Menu */}
+                {notifOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+                      <h3 className="font-semibold text-sm">Notifications</h3>
+                      <span className="flex items-center gap-1 text-xs text-slate-500">
+                        <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                        {onlineCount} online
+                      </span>
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-slate-400">
+                          <Bell className="mx-auto h-8 w-8 mb-2 opacity-50" />
+                          <p>No notifications yet</p>
+                        </div>
+                      ) : (
+                        notifications.slice(0, 20).map((notif) => (
+                          <button
+                            key={notif.id}
+                            onClick={() => markAsRead(notif.id)}
+                            className={`flex items-start gap-3 w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0 ${
+                              !notif.read
+                                ? "bg-emerald-50/50 dark:bg-emerald-500/5"
+                                : ""
+                            }`}
+                          >
+                            <div className="mt-0.5">{getNotifIcon(notif.type)}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">
+                                {notif.title}
+                              </p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                {notif.message}
+                              </p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {formatNotifTime(notif.time)}
+                              </p>
+                            </div>
+                            {!notif.read && (
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {onlineUsers.length > 0 && (
+                      <div className="border-t border-slate-200 dark:border-slate-700 p-3">
+                        <p className="text-xs font-medium text-slate-500 mb-2">
+                          Online Now
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {onlineUsers.slice(0, 5).map((user) => (
+                            <span
+                              key={user.id}
+                              className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1 text-xs"
+                              title={user.email}
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                              {user.name}
+                            </span>
+                          ))}
+                          {onlineUsers.length > 5 && (
+                            <span className="text-xs text-slate-400">
+                              +{onlineUsers.length - 5} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ===== USER MENU ===== */}
               <div className="relative" ref={userMenuRef}>
                 <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  onClick={() => {
+                    setUserMenuOpen(!userMenuOpen);
+                    setNotifOpen(false);
+                  }}
                   className="flex items-center gap-2 rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 overflow-hidden">
@@ -442,10 +575,8 @@ export default function DashboardLayout({
                   <ChevronDown className="h-4 w-4 text-slate-400 hidden sm:block" />
                 </button>
 
-                {/* Dropdown Menu */}
                 {userMenuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
-                    {/* User Info Header */}
                     <div className="p-4 border-b border-slate-200 dark:border-slate-700">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 overflow-hidden">
@@ -466,8 +597,6 @@ export default function DashboardLayout({
                           </p>
                         </div>
                       </div>
-
-                      {/* Details */}
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                           <Shield className="h-3.5 w-3.5" />
@@ -489,19 +618,14 @@ export default function DashboardLayout({
                         </div>
                       </div>
                     </div>
-
-                    {/* Menu Items */}
                     <div className="p-2">
                       <button
-                        onClick={() => {
-                          setUserMenuOpen(false);
-                        }}
+                        onClick={() => setUserMenuOpen(false)}
                         className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       >
                         <Settings className="h-4 w-4" />
                         Account Settings
                       </button>
-
                       <button
                         onClick={handleLogout}
                         className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors mt-1"
