@@ -17,6 +17,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { useInventory, type Variant, type ProductCategory } from "@/context/InventoryContext";
+import { useNotifications } from "@/context/NotificationContext";
+import { createClient } from "@/lib/supabase/client";
 
 function formatUGX(amount: number) {
   return new Intl.NumberFormat("en-UG", {
@@ -41,6 +43,8 @@ interface ProductGroup { name: string; category: ProductCategory; image: string;
 
 export default function POSPage() {
   const { variants, loading, addVariant } = useInventory();
+  const { addNotification } = useNotifications();
+  const supabase = createClient();
 
   const products = useMemo(() => {
     const map = new Map<string, ProductGroup>();
@@ -63,6 +67,9 @@ export default function POSPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mobile_money" | "card">("cash");
   const [amountTendered, setAmountTendered] = useState<number>(0);
   const [cashChange, setCashChange] = useState<number | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [mobileMoneyRef, setMobileMoneyRef] = useState("");
+  const [mobileMoneyProvider, setMobileMoneyProvider] = useState<"mtn" | "airtel">("mtn");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -125,17 +132,111 @@ export default function POSPage() {
   const subtotal = cart.reduce((sum, item) => sum + item.variant.sellingPrice * item.quantity, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleCheckout = () => { if (cart.length === 0) return; setShowPaymentModal(true); setAmountTendered(0); setCashChange(null); };
-
-  const completePayment = () => {
-    if (paymentMethod === "cash" && amountTendered < subtotal) { alert("Amount tendered is less than total!"); return; }
-    if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
-    setShowPaymentModal(false); setShowReceiptModal(true);
+  const handleCheckout = () => { 
+    if (cart.length === 0) return; 
+    setShowPaymentModal(true); 
+    setAmountTendered(0); 
+    setCashChange(null); 
+    setMobileMoneyRef(""); 
+    setMobileMoneyProvider("mtn"); 
   };
 
-  const receiptData = { date: new Date().toLocaleString(), items: cart, subtotal, paymentMethod, amountTendered: paymentMethod === "cash" ? amountTendered : undefined, change: paymentMethod === "cash" ? cashChange : undefined };
+  const completePayment = async () => {
+    if (paymentMethod === "cash" && amountTendered < subtotal) { 
+      alert("Amount tendered is less than total!"); 
+      return; 
+    }
+    
+    if (paymentMethod === "mobile_money" && !mobileMoneyRef.trim()) {
+      alert("Please enter the mobile money transaction reference");
+      return;
+    }
 
-  const printReceipt = () => { window.print(); setCart([]); setShowReceiptModal(false); setScannedVariant(null); refocusScanner(); };
+    setProcessing(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        alert("Session expired. Please log in again.");
+        router.push("/login");
+        return;
+      }
+
+      const saleData = {
+        items: cart.map(item => ({
+          variant_id: item.variant.id,
+          quantity: item.quantity,
+          unit_price: item.variant.sellingPrice,
+          cost_price: item.variant.costPrice,
+        })),
+        total_amount: subtotal,
+        discount_amount: 0,
+        payment_method: paymentMethod,
+        amount_tendered: paymentMethod === "cash" ? amountTendered : null,
+        change_amount: paymentMethod === "cash" ? amountTendered - subtotal : null,
+        user_id: user.id,
+        notes: paymentMethod === "mobile_money" 
+          ? `Mobile Money (${mobileMoneyProvider.toUpperCase()}): ${mobileMoneyRef}` 
+          : paymentMethod === "card" 
+          ? "Card Payment" 
+          : null,
+      };
+
+      // Save to database via API
+      const response = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saleData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to process sale");
+      }
+
+      // Set change for receipt
+      if (paymentMethod === "cash") {
+        setCashChange(amountTendered - subtotal);
+      }
+
+      // Close payment modal and show receipt
+      setShowPaymentModal(false);
+      setShowReceiptModal(true);
+
+      // Send notification
+      addNotification({
+        type: "sale",
+        title: "New Sale Completed",
+        message: `Sale of ${formatUGX(subtotal)} via ${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}`,
+      });
+
+    } catch (error: any) {
+      alert(error.message || "Failed to process sale. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const receiptData = { 
+    date: new Date().toLocaleString(), 
+    items: cart, 
+    subtotal, 
+    paymentMethod, 
+    amountTendered: paymentMethod === "cash" ? amountTendered : undefined, 
+    change: paymentMethod === "cash" ? cashChange : undefined,
+    mobileMoneyRef: paymentMethod === "mobile_money" ? mobileMoneyRef : undefined,
+    mobileMoneyProvider: paymentMethod === "mobile_money" ? mobileMoneyProvider : undefined,
+  };
+
+  const printReceipt = () => { 
+    window.print(); 
+    setCart([]); 
+    setShowReceiptModal(false); 
+    setScannedVariant(null); 
+    refocusScanner(); 
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -163,6 +264,12 @@ export default function POSPage() {
       setShowCaptureModal(false); setCapturedImage(null);
       setNewProductForm({ productName: "", category: CATEGORIES[0], size: "", color: "", design: "", costPrice: 0, sellingPrice: 0, stock: 0, lowStockThreshold: 5, barcode: "" });
       refocusScanner();
+      
+      addNotification({
+        type: "product",
+        title: "New Product Added",
+        message: `${newProductForm.productName} added to inventory`,
+      });
     } catch (error: any) { alert(error.message || "Failed"); }
     finally { setSaving(false); }
   };
@@ -286,19 +393,55 @@ export default function POSPage() {
           <div className="w-full max-w-md rounded-lg border bg-white dark:bg-slate-900 p-6">
             <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold">Payment</h3><button onClick={() => setShowPaymentModal(false)}><X className="h-5 w-5" /></button></div>
             <div className="mb-4 flex justify-between text-lg"><span>Total:</span><span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(subtotal)}</span></div>
+            
+            {/* Payment Method Selector */}
             <div className="mb-4 grid grid-cols-3 gap-2">
               {[{ id: "cash", label: "Cash", icon: Banknote }, { id: "mobile_money", label: "Mobile", icon: Smartphone }, { id: "card", label: "Card", icon: CreditCard }].map((m) => (
                 <button key={m.id} onClick={() => setPaymentMethod(m.id as any)} className={`flex flex-col items-center rounded-md border p-3 ${paymentMethod === m.id ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600" : "border-slate-300 text-slate-600"}`}><m.icon className="mb-1 h-5 w-5" /><span className="text-xs">{m.label}</span></button>
               ))}
             </div>
+
+            {/* Cash Input */}
             {paymentMethod === "cash" && (
               <div className="mb-4">
                 <label className="mb-1 block text-sm">Amount Tendered</label>
-                <input type="number" value={amountTendered} onChange={(e) => setAmountTendered(Number(e.target.value))} className="w-full rounded-md border px-3 py-2 text-sm" />
+                <input type="number" value={amountTendered || ""} onChange={(e) => setAmountTendered(Number(e.target.value))} className="w-full rounded-md border px-3 py-2 text-sm" />
                 {amountTendered > 0 && amountTendered >= subtotal && <p className="mt-1 text-sm text-emerald-600">Change: {formatUGX(amountTendered - subtotal)}</p>}
               </div>
             )}
-            <button onClick={completePayment} disabled={paymentMethod === "cash" && amountTendered < subtotal} className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50">Complete Sale</button>
+
+            {/* Mobile Money Input */}
+            {paymentMethod === "mobile_money" && (
+              <div className="mb-4 space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm">Provider</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setMobileMoneyProvider("mtn")} className={`rounded-md border p-2 text-sm font-medium ${mobileMoneyProvider === "mtn" ? "border-yellow-500 bg-yellow-50 text-yellow-700" : "border-slate-300"}`}>MTN</button>
+                    <button onClick={() => setMobileMoneyProvider("airtel")} className={`rounded-md border p-2 text-sm font-medium ${mobileMoneyProvider === "airtel" ? "border-red-500 bg-red-50 text-red-700" : "border-slate-300"}`}>Airtel</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm">Transaction Reference</label>
+                  <input type="text" value={mobileMoneyRef} onChange={(e) => setMobileMoneyRef(e.target.value)} placeholder="e.g., TXN123456789" className="w-full rounded-md border px-3 py-2 text-sm" />
+                </div>
+              </div>
+            )}
+
+            {/* Card Info */}
+            {paymentMethod === "card" && (
+              <div className="mb-4 p-3 rounded-md bg-blue-50 text-blue-700 text-sm">
+                Swipe or insert card on the terminal.
+              </div>
+            )}
+
+            <button 
+              onClick={completePayment} 
+              disabled={processing || (paymentMethod === "cash" && amountTendered < subtotal) || (paymentMethod === "mobile_money" && !mobileMoneyRef.trim())} 
+              className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {processing && <Loader2 className="h-4 w-4 animate-spin" />}
+              {processing ? "Processing..." : "Complete Sale"}
+            </button>
           </div>
         </div>
       )}
@@ -315,11 +458,16 @@ export default function POSPage() {
               </table>
               <hr className="my-2 border-dashed" />
               <div className="flex justify-between font-bold"><span>TOTAL:</span><span>{formatUGX(receiptData.subtotal)}</span></div>
-              <div className="mt-1 text-center">Payment: {receiptData.paymentMethod === "cash" ? "Cash" : receiptData.paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}{receiptData.amountTendered != null && <p>Tendered: {formatUGX(receiptData.amountTendered)}</p>}{receiptData.change != null && <p>Change: {formatUGX(receiptData.change)}</p>}</div>
+              <div className="mt-1 text-center">
+                Payment: {receiptData.paymentMethod === "cash" ? "Cash" : receiptData.paymentMethod === "mobile_money" ? `Mobile Money (${receiptData.mobileMoneyProvider?.toUpperCase()})` : "Card"}
+                {receiptData.mobileMoneyRef && <p>Ref: {receiptData.mobileMoneyRef}</p>}
+                {receiptData.amountTendered != null && <p>Tendered: {formatUGX(receiptData.amountTendered)}</p>}
+                {receiptData.change != null && <p>Change: {formatUGX(receiptData.change)}</p>}
+              </div>
               <hr className="my-2 border-dashed" /><p className="text-center">Thank you for shopping!</p>
             </div>
             <div className="flex gap-2 border-t p-4">
-              <button onClick={() => { setShowReceiptModal(false); setCart([]); setScannedVariant(null); refocusScanner(); }} className="flex-1 rounded-md border py-2 text-sm">Close</button>
+              <button onClick={() => { setShowReceiptModal(false); setCart([]); setScannedVariant(null); refocusScanner(); }} className="flex-1 rounded-md border py-2 text-sm">Close & New Sale</button>
               <button onClick={printReceipt} className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 py-2 text-sm text-white"><Printer className="h-4 w-4" /> Print</button>
             </div>
           </div>
