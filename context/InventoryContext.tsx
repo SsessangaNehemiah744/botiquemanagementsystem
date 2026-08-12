@@ -49,6 +49,7 @@ interface InventoryContextType {
   updateVariant: (id: string, data: Partial<Variant>) => Promise<void>;
   adjustStock: (id: string, delta: number) => Promise<void>;
   deleteVariant: (id: string) => Promise<void>;
+  refreshInventory: () => Promise<void>;
 }
 
 const InventoryContext = createContext<InventoryContextType | null>(null);
@@ -75,7 +76,10 @@ async function uploadImageToStorage(
   const { error } = await supabase.storage
     .from("products")
     .upload(filePath, blob, { contentType: mimeType, upsert: false });
-  if (error) return null;
+  if (error) {
+    console.error("Upload error:", error.message);
+    return null;
+  }
   const { data: urlData } = supabase.storage.from("products").getPublicUrl(filePath);
   return urlData.publicUrl;
 }
@@ -91,10 +95,13 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       .from("product_variants")
       .select("*, products(name, category, image_url)")
       .order("created_at", { ascending: false });
+
     if (error) {
+      console.error("Fetch error:", error.message);
       setLoading(false);
       return;
     }
+
     const mapped: Variant[] = (data || []).map((v: any) => ({
       id: v.id,
       product_id: v.product_id,
@@ -111,6 +118,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       lowStockThreshold: v.low_stock_threshold,
       created_at: v.created_at,
     }));
+
     setVariants(mapped);
     setLoading(false);
   }, [supabase]);
@@ -196,7 +204,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         updates.image_url = data.image;
       }
       const { error } = await supabase.from("product_variants").update(updates).eq("id", id);
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       await fetchVariants();
     },
     [supabase, fetchVariants]
@@ -210,7 +218,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .from("product_variants")
         .update({ stock_quantity: Math.max(0, v.stock + delta) })
         .eq("id", id);
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       await fetchVariants();
     },
     [variants, supabase, fetchVariants]
@@ -218,8 +226,25 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   const deleteVariant = useCallback(
     async (id: string) => {
-      const { error } = await supabase.from("product_variants").delete().eq("id", id);
-      if (error) throw error;
+      // First check if there are sale_items referencing this variant
+      const { data: saleItems } = await supabase
+        .from("sale_items")
+        .select("id")
+        .eq("product_variant_id", id);
+
+      if (saleItems && saleItems.length > 0) {
+        throw new Error("Cannot delete: This item has sales history. Consider marking it as out of stock instead.");
+      }
+
+      const { error } = await supabase
+        .from("product_variants")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
       await fetchVariants();
     },
     [supabase, fetchVariants]
@@ -227,7 +252,15 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <InventoryContext.Provider
-      value={{ variants, loading, addVariant, updateVariant, adjustStock, deleteVariant }}
+      value={{
+        variants,
+        loading,
+        addVariant,
+        updateVariant,
+        adjustStock,
+        deleteVariant,
+        refreshInventory: fetchVariants,
+      }}
     >
       {children}
     </InventoryContext.Provider>

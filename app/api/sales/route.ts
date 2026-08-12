@@ -7,9 +7,21 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    
+
     const body = await request.json();
-    const { items, total_amount, discount_amount, payment_method, amount_tendered, change_amount, customer_id, notes, user_id } = body;
+    const {
+      items,
+      total_amount,
+      discount_amount,
+      payment_method,
+      amount_tendered,
+      change_amount,
+      customer_id,
+      notes,
+      user_id,
+    } = body;
+
+    console.log("Processing sale with items:", items);
 
     // Step 1: Create the sale record
     const { data: sale, error: saleError } = await supabase
@@ -28,11 +40,15 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (saleError) {
+      console.error("Sale insert error:", saleError);
       return NextResponse.json({ error: saleError.message }, { status: 500 });
     }
 
-    // Step 2: Insert sale items and update stock
+    // Step 2: Insert sale items and DECREASE STOCK
     for (const item of items) {
+      console.log("Processing item:", item.variant_id, "qty:", item.quantity);
+
+      // Insert sale item
       const { error: itemError } = await supabase
         .from("sale_items")
         .insert({
@@ -44,50 +60,75 @@ export async function POST(request: NextRequest) {
         });
 
       if (itemError) {
+        console.error("Sale item insert error:", itemError);
         return NextResponse.json({ error: itemError.message }, { status: 500 });
       }
 
-      // Update stock using RPC
-      const { error: stockError } = await supabase.rpc("decrease_stock", {
+      // DECREASE STOCK - Try RPC first
+      const { error: rpcError } = await supabase.rpc("decrease_stock", {
         variant_id: item.variant_id,
         qty: item.quantity,
       });
 
-      if (stockError) {
-        // Fallback: direct update
-        const { data: currentVariant } = await supabase
+      if (rpcError) {
+        console.log("RPC failed, trying direct update...");
+        
+        // Fallback: Direct update
+        const { data: currentVariant, error: fetchError } = await supabase
           .from("product_variants")
           .select("stock_quantity")
           .eq("id", item.variant_id)
           .single();
 
+        if (fetchError) {
+          console.error("Fetch variant error:", fetchError);
+        }
+
         if (currentVariant) {
           const newStock = Math.max(0, currentVariant.stock_quantity - item.quantity);
-          await supabase
+          console.log(`Updating stock for ${item.variant_id}: ${currentVariant.stock_quantity} → ${newStock}`);
+          
+          const { error: updateError } = await supabase
             .from("product_variants")
             .update({ stock_quantity: newStock })
             .eq("id", item.variant_id);
+
+          if (updateError) {
+            console.error("Stock update error:", updateError);
+          } else {
+            console.log("Stock updated successfully!");
+          }
         }
+      } else {
+        console.log("RPC decrease_stock succeeded!");
       }
     }
 
-    // Step 3: Record in cashbook if cash payment
-    if (payment_method === "cash") {
-      await supabase.from("financial_cashbook").insert({
+    // Step 3: Record in Finance Cashbook
+    const { error: cashbookError } = await supabase
+      .from("financial_cashbook")
+      .insert({
         transaction_type: "sale",
+        category: "Sales",
         amount: total_amount,
-        description: "Sale #" + sale.id.substring(0, 8),
-        reference_id: sale.id,
-        payment_method: "cash",
+        description: `Sale #${sale.id.substring(0, 8)}`,
+        payment_method: payment_method,
         cash_in: true,
-        user_id,
+        user_id: user_id || null,
       });
+
+    if (cashbookError) {
+      console.error("Cashbook insert error:", cashbookError);
     }
 
-    return NextResponse.json({ success: true, sale_id: sale.id }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      sale_id: sale.id,
+    }, { status: 201 });
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
+    console.error("API Error:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
