@@ -25,6 +25,7 @@ import {
   Shield,
   Calendar,
   ShoppingBag,
+  Loader2,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
@@ -55,192 +56,103 @@ export default function DashboardLayout({
   const { variants } = useInventory();
   const { notifications, unreadCount, markAllRead, markAsRead } = useNotifications();
 
-  // User state
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("Loading...");
   const [userRole, setUserRole] = useState<UserRole>("admin");
   const [userCreatedAt, setUserCreatedAt] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
 
-  // Dropdown states
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Global search modal state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = createClient();
 
-  // Fetch user data and refresh session on mount
   useEffect(() => {
     async function getUser() {
       setSessionLoading(true);
-
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session) {
-        router.push("/login");
-        return;
-      }
-
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) { router.push("/login"); return; }
       const user = session.user;
-
       if (user) {
         setUserEmail(user.email || "");
-        setUserName(
-          user.user_metadata?.full_name ||
-            user.email?.split("@")[0] ||
-            "User"
-        );
+        setUserName(user.user_metadata?.full_name || user.email?.split("@")[0] || "User");
         setUserCreatedAt(user.created_at || "");
-
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role, avatar_url")
-          .eq("id", user.id)
-          .single();
-
+        const { data: profile } = await supabase.from("profiles").select("role, avatar_url").eq("id", user.id).single();
         if (profile) {
           setUserRole(profile.role as UserRole);
           setRole(profile.role as UserRole);
           if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
         }
       }
-
       setSessionLoading(false);
     }
-
     getUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!session) {
-          router.push("/login");
-        }
-      }
-    );
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.push("/login");
+    });
+    return () => { authListener?.subscription.unsubscribe(); };
   }, [supabase, router]);
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        userMenuRef.current &&
-        !userMenuRef.current.contains(event.target as Node)
-      ) {
-        setUserMenuOpen(false);
-      }
-      if (
-        notifRef.current &&
-        !notifRef.current.contains(event.target as Node)
-      ) {
-        setNotifOpen(false);
-      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) setUserMenuOpen(false);
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setNotifOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Logout function
   const handleLogout = async () => {
+    setSigningOut(true);
+    setUserMenuOpen(false);
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
   };
 
-  // Filter variants based on search query
-  const filteredVariants =
-    searchQuery.trim() === ""
-      ? []
-      : variants.filter(
-          (v) =>
-            v.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            v.barcode.includes(searchQuery)
-        );
+  const filteredVariants = searchQuery.trim() === "" ? [] : variants.filter(
+    (v) => v.productName.toLowerCase().includes(searchQuery.toLowerCase()) || v.barcode.includes(searchQuery)
+  );
 
-  // Focus input when modal opens
-  useEffect(() => {
-    if (searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 0);
-    }
-  }, [searchOpen]);
+  useEffect(() => { if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 0); }, [searchOpen]);
 
-  const handleOpenSearch = () => {
-    setSearchOpen(true);
-    setSearchQuery("");
-  };
-
-  const handleCloseSearch = () => {
-    setSearchOpen(false);
-    setSearchQuery("");
-  };
-
-  const formatUGX = (amount: number) =>
-    new Intl.NumberFormat("en-UG", {
-      style: "currency",
-      currency: "UGX",
-      maximumFractionDigits: 0,
-    }).format(amount);
-
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return "N/A";
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  };
-
+  const formatUGX = (amount: number) => new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(amount);
+  const formatDate = (dateStr: string) => { if (!dateStr) return "N/A"; return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }); };
   const formatNotifTime = (timeStr: string) => {
     const date = new Date(timeStr);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-
+    const diffMins = Math.floor((now.getTime() - date.getTime()) / 60000);
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
-
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours}h ago`;
-
     return date.toLocaleDateString();
   };
-
   const getNotifIcon = (type: string) => {
     switch (type) {
-      case "sale":
-        return <ShoppingBag className="h-4 w-4 text-emerald-500" />;
-      case "stock":
-      case "product":
-        return <Package className="h-4 w-4 text-blue-500" />;
-      case "login":
-        return <User className="h-4 w-4 text-green-500" />;
-      case "logout":
-        return <User className="h-4 w-4 text-slate-400" />;
-      default:
-        return <Bell className="h-4 w-4 text-slate-400" />;
+      case "sale": return <ShoppingBag className="h-4 w-4 text-emerald-500" />;
+      case "stock": case "product": return <Package className="h-4 w-4 text-blue-500" />;
+      case "login": return <User className="h-4 w-4 text-green-500" />;
+      case "logout": return <User className="h-4 w-4 text-slate-400" />;
+      default: return <Bell className="h-4 w-4 text-slate-400" />;
     }
   };
 
-  // Show loading state while checking session
   if (sessionLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-white dark:bg-slate-950">
         <div className="text-center">
           <ShoppingCart className="mx-auto h-10 w-10 text-emerald-500 animate-pulse" />
-          <p className="mt-4 text-sm text-slate-500">Loading BoutiqueOS...</p>
+          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">Loading BoutiqueOS...</p>
         </div>
       </div>
     );
@@ -248,7 +160,16 @@ export default function DashboardLayout({
 
   return (
     <>
-      {/* ========== GLOBAL SEARCH MODAL ========== */}
+      {/* Sign Out Loading Overlay */}
+      {signingOut && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white dark:bg-slate-950">
+          <Loader2 className="h-12 w-12 animate-spin text-emerald-500 mb-4" />
+          <p className="text-lg font-medium text-slate-700 dark:text-slate-300">Signing you out...</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">See you next time! </p>
+        </div>
+      )}
+
+      {/* Global Search Modal */}
       {searchOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
@@ -262,124 +183,58 @@ export default function DashboardLayout({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none text-sm"
               />
-              <button
-                onClick={handleCloseSearch}
-                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
+              <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="max-h-96 overflow-y-auto p-2">
               {searchQuery.trim() === "" ? (
-                <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">
-                  Type to search the inventory
-                </p>
+                <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">Type to search the inventory</p>
               ) : filteredVariants.length === 0 ? (
-                <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">
-                  No items found.
-                </p>
+                <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">No items found.</p>
               ) : (
                 <ul className="space-y-1">
                   {filteredVariants.slice(0, 20).map((v) => (
                     <li key={v.id}>
-                      <Link
-                        href="/dashboard/inventory"
-                        onClick={handleCloseSearch}
-                        className="flex items-center gap-3 rounded-md p-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        <img
-                          src={v.image || "/placeholder.jpg"}
-                          alt=""
-                          className="h-10 w-10 rounded object-cover"
-                        />
+                      <Link href="/dashboard/inventory" onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="flex items-center gap-3 rounded-md p-3 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <img src={v.image || "/placeholder.jpg"} alt="" className="h-10 w-10 rounded object-cover" />
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{v.productName}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {v.barcode} · {v.size}/{v.color}
-                          </p>
+                          <p className="text-xs text-slate-500">{v.barcode} · {v.size}/{v.color}</p>
                         </div>
                         <div className="text-right text-xs">
-                          <p className="font-bold text-emerald-600 dark:text-emerald-400">
-                            {formatUGX(v.sellingPrice)}
-                          </p>
-                          <p className="text-slate-500 dark:text-slate-400">
-                            Stock: {v.stock}
-                          </p>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(v.sellingPrice)}</p>
+                          <p className="text-slate-500">Stock: {v.stock}</p>
                         </div>
                         <ArrowRight className="h-4 w-4 text-slate-400 hidden sm:block" />
                       </Link>
                     </li>
                   ))}
-                  {filteredVariants.length > 20 && (
-                    <p className="text-xs text-center text-slate-400 py-2">
-                      Showing first 20 results. Refine your search.
-                    </p>
-                  )}
                 </ul>
               )}
-            </div>
-            <div className="border-t border-slate-200 dark:border-slate-800 p-3 flex justify-between items-center">
-              <span className="text-xs text-slate-400">
-                {filteredVariants.length} item
-                {filteredVariants.length !== 1 ? "s" : ""}
-              </span>
-              <Link
-                href="/dashboard/inventory"
-                onClick={handleCloseSearch}
-                className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
-              >
-                Go to Inventory →
-              </Link>
             </div>
           </div>
         </div>
       )}
 
-      {/* ========== MAIN DASHBOARD LAYOUT ========== */}
       <div className="flex h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-        {/* Mobile overlay */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-20 bg-black/50 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
+        {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
         {/* Sidebar */}
-        <aside
-          className={`fixed top-0 left-0 z-30 flex h-full w-64 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-transform lg:static lg:translate-x-0 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
+        <aside className={`fixed top-0 left-0 z-30 flex h-full w-64 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-transform lg:static lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 px-6">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400"
-            >
+            <Link href="/dashboard" className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
               <ShoppingCart className="h-6 w-6" />
               <span className="text-lg">BoutiqueOS</span>
             </Link>
-            <button
-              className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(false)}><X className="h-5 w-5" /></button>
           </div>
 
           <nav className="flex-1 overflow-y-auto py-4">
             {sidebarItems.map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "border-r-2 border-emerald-500 bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
-                  }`}
-                >
+                <Link key={href} href={href} className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${isActive ? "border-r-2 border-emerald-500 bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400" : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
                   <Icon className="h-5 w-5" />
                   {label}
                 </Link>
@@ -388,14 +243,8 @@ export default function DashboardLayout({
           </nav>
 
           <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-              Role (mock)
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Role (mock)</label>
+            <select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none">
               <option value="admin">Admin</option>
               <option value="cashier">Cashier</option>
               <option value="storekeeper">Storekeeper</option>
@@ -406,214 +255,78 @@ export default function DashboardLayout({
 
         {/* Main content */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top header */}
+          {/* Header */}
           <header className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6">
-            <button
-              className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-
-            <div className="hidden sm:block">
-              <h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                BoutiqueOS — Kampala Main Branch
-              </h1>
-            </div>
-
+            <button className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
+            <div className="hidden sm:block"><h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">BoutiqueOS — Kampala Main Branch</h1></div>
             <div className="flex items-center gap-3">
-              {/* Global Search */}
-              <button
-                onClick={handleOpenSearch}
-                className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Search className="h-5 w-5 text-slate-400" />
-              </button>
+              <button onClick={() => { setSearchOpen(true); setSearchQuery(""); }} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><Search className="h-5 w-5 text-slate-400" /></button>
+              <button onClick={toggleTheme} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">{theme === "dark" ? <Sun className="h-5 w-5 text-yellow-500" /> : <Moon className="h-5 w-5 text-slate-600" />}</button>
 
-              {/* Theme toggle */}
-              <button
-                onClick={toggleTheme}
-                className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-5 w-5 text-yellow-500" />
-                ) : (
-                  <Moon className="h-5 w-5 text-slate-600" />
-                )}
-              </button>
-
-              {/* ===== NOTIFICATIONS ===== */}
+              {/* Notifications */}
               <div className="relative" ref={notifRef}>
-                <button
-                  onClick={() => {
-                    setNotifOpen(!notifOpen);
-                    setUserMenuOpen(false);
-                  }}
-                  className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative transition-colors"
-                  aria-label="Notifications"
-                >
-                  <Bell
-                    className={`h-5 w-5 ${
-                      unreadCount > 0
-                        ? "text-emerald-500 animate-pulse"
-                        : "text-slate-400"
-                    }`}
-                  />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">
-                      {unreadCount > 9 ? "9+" : unreadCount}
-                    </span>
-                  )}
+                <button onClick={() => { setNotifOpen(!notifOpen); setUserMenuOpen(false); }} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative">
+                  <Bell className={`h-5 w-5 ${unreadCount > 0 ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
+                  {unreadCount > 0 && <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">{unreadCount > 9 ? "9+" : unreadCount}</span>}
                 </button>
-
-                {/* Notification Dropdown - Right aligned */}
                 {notifOpen && (
                   <div className="fixed right-4 top-16 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50 sm:absolute sm:right-0 sm:top-full sm:mt-2">
-                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between p-4 border-b">
                       <h3 className="font-semibold text-sm">Notifications</h3>
-                      {notifications.length > 0 && (
-                        <button
-                          onClick={markAllRead}
-                          className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
-                        >
-                          Mark all read
-                        </button>
-                      )}
+                      {notifications.length > 0 && <button onClick={markAllRead} className="text-xs text-emerald-600 hover:underline">Mark all read</button>}
                     </div>
-
                     <div className="max-h-72 overflow-y-auto">
                       {notifications.length === 0 ? (
-                        <div className="p-6 text-center text-sm text-slate-400">
-                          <Bell className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                          <p>No notifications yet</p>
-                        </div>
+                        <div className="p-6 text-center text-sm text-slate-400"><Bell className="mx-auto h-8 w-8 mb-2 opacity-50" /><p>No notifications yet</p></div>
                       ) : (
                         notifications.slice(0, 20).map((notif) => (
-                          <button
-                            key={notif.id}
-                            onClick={() => markAsRead(notif.id)}
-                            className={`flex items-start gap-3 w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0 ${
-                              !notif.read
-                                ? "bg-emerald-50/50 dark:bg-emerald-500/5"
-                                : ""
-                            }`}
-                          >
-                            <div className="mt-0.5 flex-shrink-0">
-                              {getNotifIcon(notif.type)}
-                            </div>
+                          <button key={notif.id} onClick={() => markAsRead(notif.id)} className={`flex items-start gap-3 w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b last:border-0 ${!notif.read ? "bg-emerald-50/50 dark:bg-emerald-500/5" : ""}`}>
+                            <div className="mt-0.5 flex-shrink-0">{getNotifIcon(notif.type)}</div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">
-                                {notif.title}
-                              </p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                {notif.message}
-                              </p>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {formatNotifTime(notif.time)}
-                              </p>
+                              <p className="text-sm font-medium truncate">{notif.title}</p>
+                              <p className="text-xs text-slate-500 truncate">{notif.message}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{formatNotifTime(notif.time)}</p>
                             </div>
-                            {!notif.read && (
-                              <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span>
-                            )}
+                            {!notif.read && <span className="h-2 w-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span>}
                           </button>
                         ))
                       )}
                     </div>
-
-                    {notifications.length > 20 && (
-                      <div className="border-t border-slate-200 dark:border-slate-700 p-3 text-center">
-                        <span className="text-xs text-slate-400">
-                          Showing 20 of {notifications.length} notifications
-                        </span>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
 
-              {/* ===== USER MENU ===== */}
+              {/* User Menu */}
               <div className="relative" ref={userMenuRef}>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(!userMenuOpen);
-                    setNotifOpen(false);
-                  }}
-                  className="flex items-center gap-2 rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
+                <button onClick={() => { setUserMenuOpen(!userMenuOpen); setNotifOpen(false); }} className="flex items-center gap-2 rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 overflow-hidden">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt="Avatar"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <User className="h-5 w-5 text-emerald-400" />
-                    )}
+                    {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <User className="h-5 w-5 text-emerald-400" />}
                   </div>
-                  <span className="text-sm text-slate-500 dark:text-slate-400 hidden sm:inline">
-                    {userName}
-                  </span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400 hidden sm:inline">{userName}</span>
                   <ChevronDown className="h-4 w-4 text-slate-400 hidden sm:block" />
                 </button>
-
                 {userMenuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
                     <div className="p-4 border-b border-slate-200 dark:border-slate-700">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 overflow-hidden">
-                          {avatarUrl ? (
-                            <img
-                              src={avatarUrl}
-                              alt="Avatar"
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <User className="h-6 w-6 text-emerald-400" />
-                          )}
+                          {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <User className="h-6 w-6 text-emerald-400" />}
                         </div>
-                        <div>
-                          <p className="font-medium text-sm">{userName}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
-                            {userEmail}
-                          </p>
-                        </div>
+                        <div><p className="font-medium text-sm">{userName}</p><p className="text-xs text-slate-500 truncate max-w-[180px]">{userEmail}</p></div>
                       </div>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <Shield className="h-3.5 w-3.5" />
-                          <span>Role:</span>
-                          <span className="font-medium text-slate-700 dark:text-slate-300 capitalize">
-                            {userRole}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <Calendar className="h-3.5 w-3.5" />
-                          <span>Joined:</span>
-                          <span className="font-medium text-slate-700 dark:text-slate-300">
-                            {formatDate(userCreatedAt)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <Mail className="h-3.5 w-3.5" />
-                          <span className="truncate max-w-[180px]">{userEmail}</span>
-                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500"><Shield className="h-3.5 w-3.5" /><span>Role:</span><span className="font-medium capitalize">{userRole}</span></div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500"><Calendar className="h-3.5 w-3.5" /><span>Joined:</span><span className="font-medium">{formatDate(userCreatedAt)}</span></div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500"><Mail className="h-3.5 w-3.5" /><span className="truncate max-w-[180px]">{userEmail}</span></div>
                       </div>
                     </div>
                     <div className="p-2">
-                      <button
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        <Settings className="h-4 w-4" />
-                        Account Settings
+                      <button onClick={() => setUserMenuOpen(false)} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                        <Settings className="h-4 w-4" />Account Settings
                       </button>
-                      <button
-                        onClick={handleLogout}
-                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors mt-1"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        Sign Out
+                      <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors mt-1 disabled:opacity-50">
+                        {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                        {signingOut ? "Signing Out..." : "Sign Out"}
                       </button>
                     </div>
                   </div>
@@ -622,10 +335,7 @@ export default function DashboardLayout({
             </div>
           </header>
 
-          {/* Page content */}
-          <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 sm:p-6">
-            {children}
-          </main>
+          <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 sm:p-6">{children}</main>
         </div>
       </div>
     </>
