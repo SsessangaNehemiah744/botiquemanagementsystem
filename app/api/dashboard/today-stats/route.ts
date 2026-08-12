@@ -20,54 +20,46 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (salesError) {
-      console.error("Sales error:", salesError);
       return NextResponse.json({ error: salesError.message }, { status: 500 });
     }
 
     const totalRevenue = (sales || []).reduce(
-      (sum: number, s: any) => sum + Number(s.total_amount),
+      (sum: number, s: { total_amount: number }) => sum + Number(s.total_amount),
       0
     );
 
     // Today's sale items
-    const { data: saleItems, error: itemsError } = await supabase
+    const { data: saleItems } = await supabase
       .from("sale_items")
       .select("quantity, product_variants(*, products(name))")
       .gte("created_at", todayISO);
 
-    if (itemsError) {
-      console.error("Items error:", itemsError);
-    }
-
     const totalItems = (saleItems || []).reduce(
-      (sum: number, i: any) => sum + i.quantity,
+      (sum: number, i: { quantity: number }) => sum + i.quantity,
       0
     );
 
-    // All variants for low stock check
-    const { data: allVariants, error: variantsError } = await supabase
+    // Low stock items
+    const { data: allVariants } = await supabase
       .from("product_variants")
       .select("*, products(name)")
       .order("stock_quantity", { ascending: true });
 
-    if (variantsError) {
-      console.error("Variants error:", variantsError);
-    }
-
     const lowStockItems = (allVariants || []).filter(
-      (v: any) => v.stock_quantity <= v.low_stock_threshold
+      (v: { stock_quantity: number; low_stock_threshold: number }) =>
+        v.stock_quantity <= v.low_stock_threshold
     );
 
     // Customers served today
     const customerIds = [
       ...new Set(
         (sales || [])
-          .filter((s: any) => s.customer_id)
-          .map((s: any) => s.customer_id)
+          .filter((s: { customer_id: string | null }) => s.customer_id)
+          .map((s: { customer_id: string | null }) => s.customer_id as string)
       ),
     ];
 
-    let customers: any[] = [];
+    let customers: unknown[] = [];
     if (customerIds.length > 0) {
       const { data: customerData } = await supabase
         .from("customers")
@@ -76,16 +68,12 @@ export async function GET() {
       customers = customerData || [];
     }
 
-    // ===== NEW INVENTORY =====
-    const { data: newInventory, error: inventoryError } = await supabase
+    // New inventory
+    const { data: newInventory } = await supabase
       .from("product_variants")
       .select("*, products(name, category)")
       .order("created_at", { ascending: false })
       .limit(50);
-
-    if (inventoryError) {
-      console.error("Inventory error:", inventoryError);
-    }
 
     return NextResponse.json({
       totalRevenue,
@@ -100,11 +88,8 @@ export async function GET() {
       newInventory: newInventory || [],
     });
 
-  } catch (error: any) {
-    console.error("API Error:", error);
-    return NextResponse.json(
-      { error: error.message || "Internal error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

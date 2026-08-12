@@ -28,13 +28,11 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (saleError) {
-      console.error("Sale insert error:", saleError);
       return NextResponse.json({ error: saleError.message }, { status: 500 });
     }
 
     // Step 2: Insert sale items and update stock
     for (const item of items) {
-      // Insert sale item
       const { error: itemError } = await supabase
         .from("sale_items")
         .insert({
@@ -46,19 +44,17 @@ export async function POST(request: NextRequest) {
         });
 
       if (itemError) {
-        console.error("Sale item insert error:", itemError);
         return NextResponse.json({ error: itemError.message }, { status: 500 });
       }
 
-      // Update stock - direct update
+      // Update stock using RPC
       const { error: stockError } = await supabase.rpc("decrease_stock", {
         variant_id: item.variant_id,
         qty: item.quantity,
       });
 
       if (stockError) {
-        console.error("Stock decrease error:", stockError);
-        // Try direct update as fallback
+        // Fallback: direct update
         const { data: currentVariant } = await supabase
           .from("product_variants")
           .select("stock_quantity")
@@ -80,7 +76,7 @@ export async function POST(request: NextRequest) {
       await supabase.from("financial_cashbook").insert({
         transaction_type: "sale",
         amount: total_amount,
-        description: `Sale #${sale.id.substring(0, 8)}`,
+        description: "Sale #" + sale.id.substring(0, 8),
         reference_id: sale.id,
         payment_method: "cash",
         cash_in: true,
@@ -89,8 +85,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, sale_id: sale.id }, { status: 201 });
-  } catch (error: any) {
-    console.error("API Error:", error);
-    return NextResponse.json({ error: error.message || "Internal error" }, { status: 500 });
+
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
