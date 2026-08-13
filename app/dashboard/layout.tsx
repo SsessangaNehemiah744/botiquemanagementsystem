@@ -26,6 +26,7 @@ import {
   Calendar,
   ShoppingBag,
   Loader2,
+  UserCheck,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
@@ -165,7 +166,7 @@ export default function DashboardLayout({
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white dark:bg-slate-950">
           <Loader2 className="h-12 w-12 animate-spin text-emerald-500 mb-4" />
           <p className="text-lg font-medium text-slate-700 dark:text-slate-300">Signing you out...</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">See you next time! </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">See you next time! 👋</p>
         </div>
       )}
 
@@ -234,22 +235,38 @@ export default function DashboardLayout({
             {sidebarItems.map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (
-                <Link key={href} href={href} className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${isActive ? "border-r-2 border-emerald-500 bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400" : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
+                <Link key={href} href={href} className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${
+                  isActive
+                    ? "border-r-2 border-emerald-500 bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                }`}>
                   <Icon className="h-5 w-5" />
                   {label}
                 </Link>
               );
             })}
+
+            {/* User Management - ONLY for admin/manager */}
+            {userRole === "admin" && (
+              <Link
+                href="/dashboard/users"
+                className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${
+                  pathname === "/dashboard/users"
+                    ? "border-r-2 border-emerald-500 bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                }`}
+              >
+                <UserCheck className="h-5 w-5" />
+                User Management
+              </Link>
+            )}
           </nav>
 
           <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Role (mock)</label>
-            <select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none">
-              <option value="admin">Admin</option>
-              <option value="cashier">Cashier</option>
-              <option value="storekeeper">Storekeeper</option>
-              <option value="accountant">Accountant</option>
-            </select>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+              Role: <span className="capitalize font-bold text-emerald-600 dark:text-emerald-400">{userRole}</span>
+            </label>
+            <p className="text-xs text-slate-400">{userName}</p>
           </div>
         </aside>
 
@@ -271,7 +288,7 @@ export default function DashboardLayout({
                 </button>
                 {notifOpen && (
                   <div className="fixed right-4 top-16 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50 sm:absolute sm:right-0 sm:top-full sm:mt-2">
-                    <div className="flex items-center justify-between p-4 border-b">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
                       <h3 className="font-semibold text-sm">Notifications</h3>
                       {notifications.length > 0 && <button onClick={markAllRead} className="text-xs text-emerald-600 hover:underline">Mark all read</button>}
                     </div>
@@ -280,7 +297,7 @@ export default function DashboardLayout({
                         <div className="p-6 text-center text-sm text-slate-400"><Bell className="mx-auto h-8 w-8 mb-2 opacity-50" /><p>No notifications yet</p></div>
                       ) : (
                         notifications.slice(0, 20).map((notif) => (
-                          <button key={notif.id} onClick={() => markAsRead(notif.id)} className={`flex items-start gap-3 w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b last:border-0 ${!notif.read ? "bg-emerald-50/50 dark:bg-emerald-500/5" : ""}`}>
+                          <button key={notif.id} onClick={() => markAsRead(notif.id)} className={`flex items-start gap-3 w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800 last:border-0 ${!notif.read ? "bg-emerald-50/50 dark:bg-emerald-500/5" : ""}`}>
                             <div className="mt-0.5 flex-shrink-0">{getNotifIcon(notif.type)}</div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{notif.title}</p>

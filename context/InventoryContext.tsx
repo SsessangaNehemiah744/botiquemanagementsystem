@@ -9,21 +9,8 @@ import React, {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export type ProductCategory =
-  | "Wideleg"
-  | "Straight"
-  | "Short"
-  | "Patras"
-  | "Boyfriend Shorts"
-  | "Jorts"
-  | "Short Dresses"
-  | "Long Dresses"
-  | "Short Skirts"
-  | "Medium Skirts"
-  | "Long Skirt"
-  | "Jean Jacket"
-  | "Leather Jacket Sleeveless"
-  | "Low waist";
+// Changed from union type to string to allow custom categories
+export type ProductCategory = string;
 
 export interface Variant {
   id: string;
@@ -54,32 +41,113 @@ interface InventoryContextType {
 
 const InventoryContext = createContext<InventoryContextType | null>(null);
 
+// Helper: Compress image using Canvas to JPEG with smart quality
+function compressImage(blob: Blob, maxSize: number, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+
+      // Calculate new dimensions (maintain aspect ratio)
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+      }
+
+      // Create canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas not supported"));
+        return;
+      }
+
+      // Draw image on canvas (this converts HEIC/PNG/WebP to JPEG)
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convert to JPEG blob with quality setting
+      canvas.toBlob(
+        (compressed) => {
+          if (compressed) {
+            resolve(compressed);
+          } else {
+            // Fallback to original if compression fails
+            resolve(blob);
+          }
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      // Fallback to original if image can't be loaded
+      resolve(blob);
+    };
+
+    img.src = url;
+  });
+}
+
+// Updated upload function with compression
 async function uploadImageToStorage(
   supabase: ReturnType<typeof createClient>,
   base64Data: string,
   fileName: string
 ): Promise<string | null> {
   if (!base64Data.startsWith("data:")) return base64Data;
+
   const matches = base64Data.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!matches) return null;
-  const mimeType = matches[1];
+
   const base64Content = matches[2];
-  const extension = mimeType.split("/")[1];
+
+  // Convert base64 to blob
   const byteCharacters = atob(base64Content);
   const byteNumbers = new Array(byteCharacters.length);
   for (let i = 0; i < byteCharacters.length; i++) {
     byteNumbers[i] = byteCharacters.charCodeAt(i);
   }
   const byteArray = new Uint8Array(byteNumbers);
-  const blob = new Blob([byteArray], { type: mimeType });
-  const filePath = `${Date.now()}-${fileName}.${extension}`;
+  const originalBlob = new Blob([byteArray]);
+
+  // Compress image (max 1200px, 85% quality = visually identical)
+  let finalBlob = originalBlob;
+  try {
+    finalBlob = await compressImage(originalBlob, 1200, 0.85);
+  } catch (error) {
+    console.warn("Compression failed, using original:", error);
+  }
+
+  // Always save as .jpg
+  const filePath = `${Date.now()}-${fileName}.jpg`;
+
   const { error } = await supabase.storage
     .from("products")
-    .upload(filePath, blob, { contentType: mimeType, upsert: false });
+    .upload(filePath, finalBlob, {
+      contentType: "image/jpeg",
+      upsert: false,
+    });
+
   if (error) {
     console.error("Upload error:", error.message);
     return null;
   }
+
   const { data: urlData } = supabase.storage.from("products").getPublicUrl(filePath);
   return urlData.publicUrl;
 }
@@ -106,7 +174,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       id: v.id,
       product_id: v.product_id,
       productName: v.products?.name || "Unknown",
-      category: (v.products?.category || "Wideleg") as ProductCategory,
+      category: v.products?.category || "Uncategorized",
       image: v.image_url || v.products?.image_url || "",
       barcode: v.barcode || "",
       size: v.size,
@@ -226,7 +294,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   const deleteVariant = useCallback(
     async (id: string) => {
-      // First check if there are sale_items referencing this variant
       const { data: saleItems } = await supabase
         .from("sale_items")
         .select("id")

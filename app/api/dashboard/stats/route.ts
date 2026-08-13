@@ -8,11 +8,22 @@ export async function GET() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get product_variants
+    // Get variants WITH product names (join)
     const { data: variants } = await supabase
       .from("product_variants")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*, products(name, category)")
+      .order("created_at", { ascending: true });
+
+    console.log("Variants with products:", variants?.length, variants?.[0]?.products?.name);
+
+    // Overstaying stock (older than 2 months)
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const twoMonthsAgoISO = twoMonthsAgo.toISOString();
+
+    const overstayingStock = (variants || []).filter(
+      (v: { created_at: string }) => new Date(v.created_at) < new Date(twoMonthsAgoISO)
+    );
 
     // Get sales
     const { data: sales } = await supabase
@@ -25,58 +36,45 @@ export async function GET() {
       0
     );
 
-    // Get sale items with product details
-    const { data: saleItems, error: saleItemsError } = await supabase
+    // Get sale items
+    const { data: saleItems } = await supabase
       .from("sale_items")
       .select("quantity, product_variants(*, products(name))");
-
-    if (saleItemsError) {
-      console.error("Sale items error:", saleItemsError.message);
-    }
 
     const totalItems = (saleItems || []).reduce(
       (sum: number, i: { quantity: number }) => sum + i.quantity,
       0
     );
 
-    // Build top selling from sale items
-    const topSellingMap = new Map<string, { name: string; quantity: number; price: number }>();
-
+    // Top selling
+    const topMap = new Map<string, { name: string; quantity: number; price: number }>();
     (saleItems || []).forEach((item: unknown) => {
-      const saleItem = item as {
+      const si = item as {
         quantity: number;
-        product_variants?: {
-          products?: { name: string };
-          selling_price: number;
-        };
+        product_variants?: { products?: { name: string }; selling_price: number };
       };
-      
-      const name = saleItem.product_variants?.products?.name || "Unknown";
-      const price = saleItem.product_variants?.selling_price || 0;
-      const quantity = saleItem.quantity || 0;
-
-      if (topSellingMap.has(name)) {
-        const existing = topSellingMap.get(name)!;
-        existing.quantity += quantity;
+      const name = si.product_variants?.products?.name || "Unknown";
+      const price = si.product_variants?.selling_price || 0;
+      const qty = si.quantity || 0;
+      if (topMap.has(name)) {
+        topMap.get(name)!.quantity += qty;
       } else {
-        topSellingMap.set(name, { name, quantity, price });
+        topMap.set(name, { name, quantity: qty, price });
       }
     });
 
-    const topSelling = Array.from(topSellingMap.values())
+    const topSelling = Array.from(topMap.values())
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
 
     // Low stock
     const lowStockItems = (variants || []).filter(
       (v: { stock_quantity: number; low_stock_threshold: number }) =>
-        Number(v.stock_quantity) <= Number(v.low_stock_threshold)
+        Number(v.stock_quantity) <= Number(v.low_stock_threshold) && Number(v.stock_quantity) > 0
     );
 
     // Customers
-    const { data: customers } = await supabase
-      .from("customers")
-      .select("*");
+    const { data: customers } = await supabase.from("customers").select("*");
 
     return NextResponse.json({
       totalRevenue,
@@ -92,11 +90,12 @@ export async function GET() {
       saleItems: saleItems || [],
       newInventory: variants || [],
       topSelling,
+      overstayingStock,
+      overstayingCount: overstayingStock.length,
     });
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
-    console.error("API Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

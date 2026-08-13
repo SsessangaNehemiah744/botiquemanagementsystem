@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ShoppingBag,
@@ -20,6 +21,9 @@ import {
   RefreshCw,
   ChevronRight,
   CalendarClock,
+  UserCheck,
+  Activity,
+  FileText,
 } from "lucide-react";
 
 function formatUGX(amount: number) {
@@ -54,7 +58,7 @@ function daysSince(dateStr: string): number {
   return Math.floor((now.getTime() - date.getTime()) / 86400000);
 }
 
-export default function DashboardPage() {
+export default function ManagerDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -213,7 +217,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Manager Dashboard</h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {totalInventory} products · {totalCustomers} customers · Real-time overview
           </p>
@@ -225,7 +229,7 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="rounded-md bg-red-50 dark:bg-red-500/10 border border-red-200 p-4 text-sm text-red-600 dark:text-red-400">
+        <div className="rounded-md bg-red-50 dark:bg-red-500/10 border border-red-200 p-4 text-sm text-red-600">
           <p>{error}</p>
           <button onClick={loadData} className="mt-2 underline">Retry</button>
         </div>
@@ -303,7 +307,7 @@ export default function DashboardPage() {
               New Inventory
               <span className="text-sm font-normal text-slate-400">({newInventory.length})</span>
             </h3>
-            <button onClick={() => router.push("/dashboard/inventory")} className="text-sm text-emerald-600 dark:text-emerald-400 hover:underline">
+            <button onClick={() => router.push("/manager/inventory")} className="text-sm text-emerald-600 dark:text-emerald-400 hover:underline">
               View All →
             </button>
           </div>
@@ -346,79 +350,43 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ===== OVERSTAYING STOCK POPUP ===== */}
-      {activePopup === "overstaying" && (
+      {/* ===== LOW STOCK POPUP (WITH IMAGES) ===== */}
+      {activePopup === "lowStock" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-4xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-orange-500" />
-                Overstaying Stock ({sortedOverstaying.length} items)
-              </h3>
+          <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">⚠️ Low Stock Alerts ({lowStockItems.length})</h3>
               <button onClick={closePopup} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
             </div>
-            <div className="p-4 border-b">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input type="text" placeholder="Search overstaying stock..." value={overstayingSearch} onChange={(e) => setOverstayingSearch(e.target.value)} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 py-2 pl-10 pr-4 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-emerald-500 focus:outline-none" />
+            {lowStockItems.length === 0 ? (
+              <div className="text-center py-8">
+                <Package className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
+                <p className="text-slate-500 dark:text-slate-400">All items are well stocked! 🎉</p>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {sortedOverstaying.length === 0 ? (
-                <div className="text-center py-12">
-                  <CalendarClock className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
-                  <p className="text-slate-500 dark:text-slate-400">No overstaying stock! 🎉</p>
-                  <p className="text-xs text-slate-400 mt-1">All items are less than 2 months old</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {sortedOverstaying
-                    .filter((item) => {
-                      if (!overstayingSearch.trim()) return true;
-                      const q = overstayingSearch.toLowerCase();
-                      return (
-                        (item.products?.name || "").toLowerCase().includes(q) ||
-                        (item.products?.category || "").toLowerCase().includes(q) ||
-                        (item.size || "").toLowerCase().includes(q) ||
-                        (item.color || "").toLowerCase().includes(q) ||
-                        (item.barcode || "").includes(q)
-                      );
-                    })
-                    .map((item) => {
-                      const days = daysSince(item.created_at);
-                      return (
-                        <div key={item.id} className="flex items-center gap-4 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-500/5 p-4">
-                          {item.image_url ? (
-                            <img src={item.image_url} alt="" className="h-16 w-16 rounded-lg object-cover flex-shrink-0 border border-orange-100" />
-                          ) : (
-                            <div className="h-16 w-16 rounded-lg bg-orange-100 dark:bg-orange-500/10 flex items-center justify-center flex-shrink-0">
-                              <Package className="h-7 w-7 text-orange-400" />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">
-                              {item.products?.name || "Unknown"}
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              {item.size} / {item.color} · {item.products?.category || "—"}
-                            </p>
-                            <p className="text-xs text-slate-500">Barcode: {item.barcode || "—"}</p>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="font-bold text-orange-600 dark:text-orange-400 text-lg">{days} days</p>
-                            <p className="text-xs text-slate-400">in stock</p>
-                            <p className="text-xs text-slate-500 mt-1">Stock: {item.stock_quantity}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-            <div className="border-t p-3 flex justify-between">
-              <span className="text-xs text-slate-400">{sortedOverstaying.length} items</span>
-              <span className="text-xs text-slate-400">Sorted by oldest first</span>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {(lowStockItems as Array<{ id: string; products?: { name: string }; image_url?: string; size: string; color: string; stock_quantity: number; low_stock_threshold: number }>).map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-500/5 p-3">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt="" className="h-16 w-16 rounded-lg object-cover flex-shrink-0 border border-red-100" />
+                    ) : (
+                      <div className="h-16 w-16 rounded-lg bg-red-100 dark:bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                        <Package className="h-7 w-7 text-red-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">{item.products?.name || "Unknown"}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{item.size} / {item.color}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`font-bold text-lg ${item.stock_quantity === 0 ? "text-red-600" : "text-yellow-600"}`}>{item.stock_quantity}</p>
+                      <p className="text-xs text-slate-400">/ {item.low_stock_threshold} min</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={closePopup} className="mt-4 w-full rounded-md border border-slate-300 dark:border-slate-600 py-2 text-sm">Close</button>
           </div>
         </div>
       )}
@@ -453,70 +421,66 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ===== ITEMS SOLD POPUP ===== */}
-      {activePopup === "items" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-slate-900 p-6">
-            <h3 className="text-lg font-bold mb-4">Items Sold Today</h3>
-            <p className="text-3xl font-bold text-emerald-600">{totalItems} items</p>
-            <p className="text-sm text-slate-500 mt-2">Across {sales.length} transactions</p>
-            <button onClick={closePopup} className="mt-6 w-full rounded-md border py-2 text-sm">Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* ===== LOW STOCK POPUP ===== */}
-      {activePopup === "lowStock" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-slate-900 p-6 max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">⚠️ Low Stock Alerts ({lowStockItems.length})</h3>
-            {lowStockItems.length === 0 ? (
-              <p className="text-center py-8">All items are well stocked! 🎉</p>
-            ) : (
-              <div className="space-y-2">
-                {(lowStockItems as Array<{ id: string; products?: { name: string }; image_url?: string; size: string; color: string; stock_quantity: number; low_stock_threshold: number }>).map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 border border-red-200 bg-red-50 p-3 rounded">
-                    {item.image_url ? <img src={item.image_url} alt="" className="h-14 w-14 rounded object-cover" /> : <div className="h-14 w-14 rounded bg-red-100 flex items-center justify-center"><Package className="h-6 w-6 text-red-400" /></div>}
-                    <div className="flex-1">
-                      <p className="font-medium">{item.products?.name || "Unknown"}</p>
-                      <p className="text-xs">{item.size} / {item.color}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-red-600">{item.stock_quantity} left</p>
-                      <p className="text-xs">Threshold: {item.low_stock_threshold}</p>
-                    </div>
-                  </div>
-                ))}
+      {/* ===== OVERSTAYING POPUP ===== */}
+      {activePopup === "overstaying" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-4xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <CalendarClock className="h-5 w-5 text-orange-500" />
+                Overstaying Stock ({sortedOverstaying.length} items)
+              </h3>
+              <button onClick={closePopup} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input type="text" placeholder="Search overstaying stock..." value={overstayingSearch} onChange={(e) => setOverstayingSearch(e.target.value)} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 py-2 pl-10 pr-4 text-sm" />
               </div>
-            )}
-            <button onClick={closePopup} className="mt-4 w-full rounded-md border py-2 text-sm">Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* ===== CUSTOMERS POPUP ===== */}
-      {activePopup === "customers" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-slate-900 p-6 max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">👥 Customers Served Today</h3>
-            {customersServed.length === 0 ? (
-              <p className="text-center py-8">No customers recorded today.</p>
-            ) : (
-              <div className="space-y-2">
-                {(customersServed as Array<{ id: string; full_name: string; phone?: string; email?: string }>).map((c) => (
-                  <div key={c.id} className="flex items-center gap-3 border p-3 rounded">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-50">
-                      <Users className="h-5 w-5 text-purple-500" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{c.full_name}</p>
-                      {c.phone && <p className="text-xs flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button onClick={closePopup} className="mt-4 w-full rounded-md border py-2 text-sm">Close</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {sortedOverstaying.length === 0 ? (
+                <div className="text-center py-12">
+                  <CalendarClock className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
+                  <p className="text-slate-500">No overstaying stock! 🎉</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sortedOverstaying
+                    .filter((item) => {
+                      if (!overstayingSearch.trim()) return true;
+                      const q = overstayingSearch.toLowerCase();
+                      return (item.products?.name || "").toLowerCase().includes(q) ||
+                        (item.products?.category || "").toLowerCase().includes(q) ||
+                        (item.size || "").toLowerCase().includes(q) ||
+                        (item.color || "").toLowerCase().includes(q) ||
+                        (item.barcode || "").includes(q);
+                    })
+                    .map((item) => {
+                      const days = daysSince(item.created_at);
+                      return (
+                        <div key={item.id} className="flex items-center gap-4 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-500/5 p-4">
+                          {item.image_url ? (
+                            <img src={item.image_url} alt="" className="h-16 w-16 rounded-lg object-cover flex-shrink-0 border border-orange-100" />
+                          ) : (
+                            <div className="h-16 w-16 rounded-lg bg-orange-100 dark:bg-orange-500/10 flex items-center justify-center flex-shrink-0">
+                              <Package className="h-7 w-7 text-orange-400" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">{item.products?.name || "Unknown"}</p>
+                            <p className="text-xs text-slate-500">{item.size} / {item.color} · {item.products?.category || "—"}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="font-bold text-orange-600 dark:text-orange-400 text-lg">{days} days</p>
+                            <p className="text-xs text-slate-500 mt-1">Stock: {item.stock_quantity}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
