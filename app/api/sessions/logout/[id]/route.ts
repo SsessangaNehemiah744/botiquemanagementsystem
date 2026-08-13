@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { logAction } from "@/lib/logging";
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,7 +13,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const body = await request.json();
     const { reason, notes, forcedBy } = body;
-    const sessionId = params.id;
+    
+    // AWAIT the params
+    const { id: sessionId } = await params;
 
     // Get session
     const { data: session } = await supabase
@@ -21,7 +25,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .single();
 
     if (session) {
-      // Update session
       await supabase.from("sessions").update({
         status: "force_logged_out",
         logout_time: new Date().toISOString(),
@@ -29,21 +32,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         forced_reason: reason,
       }).eq("id", sessionId);
 
-      // Add to blacklist
       await supabase.from("jwt_blacklist").insert({
         token_id: session.token_id,
         user_id: session.user_id,
         reason: "force_logout",
-      });
-
-      await logAction({
-        user_id: forcedBy,
-        action: "FORCE_LOGOUT",
-        affected_type: "Session",
-        affected_id: sessionId,
-        affected_name: session.user_id,
-        details: { reason, notes },
-        status: "success",
       });
     }
 
