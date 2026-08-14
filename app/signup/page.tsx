@@ -155,7 +155,7 @@ export default function SignUpPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   className={inputClass}
-                  placeholder="jane@boutique.com"
+                  placeholder="jane@gmail.com"
                 />
               </div>
             </div>

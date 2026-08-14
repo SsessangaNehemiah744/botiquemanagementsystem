@@ -121,7 +121,7 @@ export default function LoginPage() {
             <label className={labelClass}>Email Address</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputClass} placeholder="you@boutique.com" />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputClass} placeholder="your@gmail.com" />
             </div>
           </div>
 
@@ -129,7 +129,7 @@ export default function LoginPage() {
             <label className={labelClass}>Password</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className={inputClass} placeholder="••••••••" />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className={inputClass} placeholder="Enter your password" />
             </div>
           </div>
 
