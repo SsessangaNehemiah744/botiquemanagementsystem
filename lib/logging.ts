@@ -21,10 +21,26 @@ export async function logAction(entry: LogEntry): Promise<void> {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    let fullName = entry.user_name;
+    let userRole = entry.user_role;
+
+    // If user_id provided but no name, fetch from profiles
+    if (entry.user_id && !fullName) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, role")
+        .eq("id", entry.user_id)
+        .single();
+      if (profile) {
+        fullName = profile.full_name;
+        userRole = profile.role;
+      }
+    }
+
     await supabase.from("system_logs").insert({
       user_id: entry.user_id || null,
-      user_name: entry.user_name || null,
-      user_role: entry.user_role || null,
+      user_name: fullName || null,
+      user_role: userRole || null,
       action: entry.action,
       affected_type: entry.affected_type || null,
       affected_id: entry.affected_id || null,

@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-// Changed from union type to string to allow custom categories
 export type ProductCategory = string;
 
 export interface Variant {
@@ -41,19 +40,15 @@ interface InventoryContextType {
 
 const InventoryContext = createContext<InventoryContextType | null>(null);
 
-// Helper: Compress image using Canvas to JPEG with smart quality
+// Helper to compress image
 function compressImage(blob: Blob, maxSize: number, quality: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(blob);
-
     img.onload = () => {
       URL.revokeObjectURL(url);
-
-      // Calculate new dimensions (maintain aspect ratio)
       let width = img.width;
       let height = img.height;
-
       if (width > maxSize || height > maxSize) {
         if (width > height) {
           height = Math.round((height * maxSize) / width);
@@ -63,60 +58,34 @@ function compressImage(blob: Blob, maxSize: number, quality: number): Promise<Bl
           height = maxSize;
         }
       }
-
-      // Create canvas
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-
       const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Canvas not supported"));
-        return;
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((compressed) => {
+          if (compressed) resolve(compressed);
+          else resolve(blob);
+        }, "image/jpeg", quality);
+      } else {
+        resolve(blob);
       }
-
-      // Draw image on canvas (this converts HEIC/PNG/WebP to JPEG)
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Convert to JPEG blob with quality setting
-      canvas.toBlob(
-        (compressed) => {
-          if (compressed) {
-            resolve(compressed);
-          } else {
-            // Fallback to original if compression fails
-            resolve(blob);
-          }
-        },
-        "image/jpeg",
-        quality
-      );
     };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      // Fallback to original if image can't be loaded
-      resolve(blob);
-    };
-
+    img.onerror = () => resolve(blob);
     img.src = url;
   });
 }
 
-// Updated upload function with compression
 async function uploadImageToStorage(
   supabase: ReturnType<typeof createClient>,
   base64Data: string,
   fileName: string
 ): Promise<string | null> {
   if (!base64Data.startsWith("data:")) return base64Data;
-
   const matches = base64Data.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!matches) return null;
-
   const base64Content = matches[2];
-
-  // Convert base64 to blob
   const byteCharacters = atob(base64Content);
   const byteNumbers = new Array(byteCharacters.length);
   for (let i = 0; i < byteCharacters.length; i++) {
@@ -124,32 +93,53 @@ async function uploadImageToStorage(
   }
   const byteArray = new Uint8Array(byteNumbers);
   const originalBlob = new Blob([byteArray]);
-
-  // Compress image (max 1200px, 85% quality = visually identical)
   let finalBlob = originalBlob;
   try {
     finalBlob = await compressImage(originalBlob, 1200, 0.85);
   } catch (error) {
-    console.warn("Compression failed, using original:", error);
+    console.warn("Compression failed:", error);
   }
-
-  // Always save as .jpg
   const filePath = `${Date.now()}-${fileName}.jpg`;
-
   const { error } = await supabase.storage
     .from("products")
-    .upload(filePath, finalBlob, {
-      contentType: "image/jpeg",
-      upsert: false,
-    });
-
-  if (error) {
-    console.error("Upload error:", error.message);
-    return null;
-  }
-
+    .upload(filePath, finalBlob, { contentType: "image/jpeg", upsert: false });
+  if (error) return null;
   const { data: urlData } = supabase.storage.from("products").getPublicUrl(filePath);
   return urlData.publicUrl;
+}
+
+// Helper to log an action
+async function logSystemAction(
+  supabase: ReturnType<typeof createClient>,
+  action: string,
+  affectedType: string,
+  affectedId: string,
+  affectedName: string,
+  details?: Record<string, unknown>
+) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, role")
+      .eq("id", user.id)
+      .single();
+    
+    await supabase.from("system_logs").insert({
+      user_id: user.id,
+      user_name: profile?.full_name || user.email,
+      user_role: profile?.role || "unknown",
+      action,
+      affected_type: affectedType,
+      affected_id: affectedId,
+      affected_name: affectedName,
+      details: details || null,
+      status: "success",
+    });
+  } catch (error) {
+    console.error("Log error:", error);
+  }
 }
 
 export function InventoryProvider({ children }: { children: React.ReactNode }) {
@@ -199,10 +189,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     async (newVariant: Omit<Variant, "id" | "product_id" | "created_at">) => {
       let imageUrl = newVariant.image;
       if (imageUrl?.startsWith("data:")) {
-        const safeName = newVariant.productName
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, "-")
-          .substring(0, 30);
+        const safeName = newVariant.productName.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30);
         const uploaded = await uploadImageToStorage(supabase, imageUrl, safeName);
         if (uploaded) imageUrl = uploaded;
       }
@@ -243,8 +230,23 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       if (newVariant.barcode) vData.barcode = newVariant.barcode;
       if (imageUrl) vData.image_url = imageUrl;
 
-      const { error: vErr } = await supabase.from("product_variants").insert(vData);
+      const { data: insertedVariant, error: vErr } = await supabase
+        .from("product_variants")
+        .insert(vData)
+        .select("id")
+        .single();
       if (vErr) throw new Error(vErr.message);
+
+      // ✅ LOG the addition
+      await logSystemAction(
+        supabase,
+        "INVENTORY_ADDED",
+        "Product",
+        insertedVariant?.id || productId,
+        newVariant.productName,
+        { size: newVariant.size, color: newVariant.color, quantity: newVariant.stock }
+      );
+
       await fetchVariants();
     },
     [supabase, fetchVariants]
@@ -262,17 +264,25 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       if (data.stock !== undefined) updates.stock_quantity = data.stock;
       if (data.lowStockThreshold !== undefined) updates.low_stock_threshold = data.lowStockThreshold;
       if (data.image?.startsWith("data:")) {
-        const safeName = (data.productName || "variant")
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, "-")
-          .substring(0, 30);
+        const safeName = (data.productName || "variant").toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30);
         const uploaded = await uploadImageToStorage(supabase, data.image, safeName);
         if (uploaded) updates.image_url = uploaded;
       } else if (data.image !== undefined) {
         updates.image_url = data.image;
       }
+
       const { error } = await supabase.from("product_variants").update(updates).eq("id", id);
       if (error) throw new Error(error.message);
+
+      // ✅ LOG the update
+      await logSystemAction(
+        supabase,
+        "INVENTORY_UPDATED",
+        "Product",
+        id,
+        data.productName || "Variant"
+      );
+
       await fetchVariants();
     },
     [supabase, fetchVariants]
@@ -287,6 +297,17 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .update({ stock_quantity: Math.max(0, v.stock + delta) })
         .eq("id", id);
       if (error) throw new Error(error.message);
+
+      // ✅ LOG stock adjustment
+      await logSystemAction(
+        supabase,
+        "STOCK_ADJUSTED",
+        "Product",
+        id,
+        v.productName,
+        { oldStock: v.stock, newStock: Math.max(0, v.stock + delta), delta }
+      );
+
       await fetchVariants();
     },
     [variants, supabase, fetchVariants]
@@ -300,21 +321,26 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .eq("product_variant_id", id);
 
       if (saleItems && saleItems.length > 0) {
-        throw new Error("Cannot delete: This item has sales history. Consider marking it as out of stock instead.");
+        throw new Error("Cannot delete: This item has sales history.");
       }
 
-      const { error } = await supabase
-        .from("product_variants")
-        .delete()
-        .eq("id", id);
+      const variant = variants.find((v) => v.id === id);
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      const { error } = await supabase.from("product_variants").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+
+      // ✅ LOG the deletion
+      await logSystemAction(
+        supabase,
+        "INVENTORY_DELETED",
+        "Product",
+        id,
+        variant?.productName || "Variant"
+      );
 
       await fetchVariants();
     },
-    [supabase, fetchVariants]
+    [supabase, fetchVariants, variants]
   );
 
   return (

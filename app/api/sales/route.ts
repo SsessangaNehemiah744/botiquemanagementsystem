@@ -21,9 +21,7 @@ export async function POST(request: NextRequest) {
       user_id,
     } = body;
 
-    console.log("Processing sale with items:", items);
-
-    // Step 1: Create the sale record
+    // Create the sale
     const { data: sale, error: saleError } = await supabase
       .from("sales")
       .insert({
@@ -44,11 +42,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: saleError.message }, { status: 500 });
     }
 
-    // Step 2: Insert sale items and DECREASE STOCK
+    // Insert sale items and decrease stock
     for (const item of items) {
-      console.log("Processing item:", item.variant_id, "qty:", item.quantity);
-
-      // Insert sale item
       const { error: itemError } = await supabase
         .from("sale_items")
         .insert({
@@ -60,75 +55,66 @@ export async function POST(request: NextRequest) {
         });
 
       if (itemError) {
-        console.error("Sale item insert error:", itemError);
-        return NextResponse.json({ error: itemError.message }, { status: 500 });
+        console.error("Sale item error:", itemError);
       }
 
-      // DECREASE STOCK - Try RPC first
-      const { error: rpcError } = await supabase.rpc("decrease_stock", {
-        variant_id: item.variant_id,
-        qty: item.quantity,
-      });
+      // Decrease stock
+      const { data: currentVariant } = await supabase
+        .from("product_variants")
+        .select("stock_quantity")
+        .eq("id", item.variant_id)
+        .single();
 
-      if (rpcError) {
-        console.log("RPC failed, trying direct update...");
-        
-        // Fallback: Direct update
-        const { data: currentVariant, error: fetchError } = await supabase
+      if (currentVariant) {
+        const newStock = Math.max(0, currentVariant.stock_quantity - item.quantity);
+        await supabase
           .from("product_variants")
-          .select("stock_quantity")
-          .eq("id", item.variant_id)
-          .single();
-
-        if (fetchError) {
-          console.error("Fetch variant error:", fetchError);
-        }
-
-        if (currentVariant) {
-          const newStock = Math.max(0, currentVariant.stock_quantity - item.quantity);
-          console.log(`Updating stock for ${item.variant_id}: ${currentVariant.stock_quantity} → ${newStock}`);
-          
-          const { error: updateError } = await supabase
-            .from("product_variants")
-            .update({ stock_quantity: newStock })
-            .eq("id", item.variant_id);
-
-          if (updateError) {
-            console.error("Stock update error:", updateError);
-          } else {
-            console.log("Stock updated successfully!");
-          }
-        }
-      } else {
-        console.log("RPC decrease_stock succeeded!");
+          .update({ stock_quantity: newStock })
+          .eq("id", item.variant_id);
       }
     }
 
-    // Step 3: Record in Finance Cashbook
-    const { error: cashbookError } = await supabase
-      .from("financial_cashbook")
-      .insert({
+    // Record in cashbook for cash payments
+    if (payment_method === "cash") {
+      await supabase.from("financial_cashbook").insert({
         transaction_type: "sale",
         category: "Sales",
         amount: total_amount,
         description: `Sale #${sale.id.substring(0, 8)}`,
-        payment_method: payment_method,
+        payment_method: "cash",
         cash_in: true,
         user_id: user_id || null,
       });
-
-    if (cashbookError) {
-      console.error("Cashbook insert error:", cashbookError);
     }
 
-    return NextResponse.json({
-      success: true,
-      sale_id: sale.id,
-    }, { status: 201 });
+    // ✅ LOG THE SALE with user full name
+    if (user_id) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, role")
+        .eq("id", user_id)
+        .single();
 
+      await supabase.from("system_logs").insert({
+        user_id: user_id,
+        user_name: profile?.full_name || "Unknown",
+        user_role: profile?.role || "unknown",
+        action: "SALE_PROCESSED",
+        affected_type: "Sale",
+        affected_id: sale.id,
+        affected_name: `Sale #${sale.id.substring(0, 8)}`,
+        details: {
+          total_amount,
+          payment_method,
+          items_count: items.length,
+        },
+        status: "success",
+      });
+    }
+
+    return NextResponse.json({ success: true, sale_id: sale.id }, { status: 201 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
-    console.error("API Error:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { logAction } from "@/lib/logging";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,59 +10,39 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = await request.json();
 
-    // Check user status first
-    const { data: userData } = await supabase
-      .from("profiles")
-      .select("status, role")
-      .eq("email", email)
-      .single();
-
-    if (userData && userData.status === "INACTIVE") {
-      await logAction({
-        action: "LOGIN_FAILED",
-        affected_type: "User",
-        affected_name: email,
-        details: { reason: "Account pending activation" },
-        status: "failed",
-      });
-      return NextResponse.json(
-        { error: "Your account is pending activation by a Manager." },
-        { status: 403 }
-      );
-    }
-
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      await logAction({
-        action: "LOGIN_FAILED",
-        affected_type: "User",
-        affected_name: email,
-        details: { reason: error.message },
-        status: "failed",
-      });
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
     // Create session record
     const tokenId = crypto.randomUUID();
+    const userAgent = request.headers.get("user-agent") || "unknown";
+    const ipAddress = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
+
     await supabase.from("sessions").insert({
       user_id: data.user.id,
       token_id: tokenId,
+      login_time: new Date().toISOString(),
+      last_activity: new Date().toISOString(),
       status: "active",
-      ip_address: request.headers.get("x-forwarded-for") || "unknown",
-      user_agent: request.headers.get("user-agent") || "unknown",
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      device: userAgent.substring(0, 50),
     });
 
-    await logAction({
+    // Log the login
+    await supabase.from("system_logs").insert({
       user_id: data.user.id,
       user_name: data.user.email,
-      user_role: userData?.role || "unknown",
       action: "LOGIN_SUCCESS",
       affected_type: "User",
       affected_id: data.user.id,
       affected_name: data.user.email,
       status: "success",
+      ip_address: ipAddress,
+      user_agent: userAgent,
     });
 
     return NextResponse.json({ user: data.user, tokenId });

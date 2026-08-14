@@ -4,22 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ShoppingCart,
-  Package,
-  LayoutDashboard,
-  Menu,
-  X,
-  User,
-  Sun,
-  Moon,
-  LogOut,
-  ChevronDown,
-  CreditCard,
-  Loader2,
-  Users,
-  Wallet,
-  History,
-  Search,
+  ShoppingCart, Package, LayoutDashboard, Menu, X, User, Bell,
+  Sun, Moon, LogOut, ChevronDown, CreditCard, Loader2, Users, Wallet, History,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
@@ -34,11 +20,7 @@ const cashierNavItems = [
   { href: "/cashier/history", label: "My Sales", icon: History },
 ];
 
-export default function CashierLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function CashierLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -78,6 +60,21 @@ export default function CashierLayout({
   const handleLogout = async () => {
     setSigningOut(true);
     setUserMenuOpen(false);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: session.user.id }),
+        });
+      } catch (error) {
+        console.error("Logout API call failed:", error);
+      }
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 500));
     await supabase.auth.signOut();
     router.push("/login");
@@ -104,7 +101,6 @@ export default function CashierLayout({
       <div className="flex h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
         {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-        {/* Sidebar */}
         <aside className={`fixed top-0 left-0 z-30 flex h-full w-64 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-transform lg:static lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 px-6">
             <Link href="/cashier" className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
@@ -128,7 +124,6 @@ export default function CashierLayout({
           </nav>
         </aside>
 
-        {/* Main */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <header className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6">
             <button className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
@@ -138,18 +133,13 @@ export default function CashierLayout({
 
               <div className="relative" ref={userMenuRef}>
                 <button onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/20">
-                    <CreditCard className="h-5 w-5 text-blue-400" />
-                  </div>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/20"><CreditCard className="h-5 w-5 text-blue-400" /></div>
                   <span className="text-sm hidden sm:inline">{userName}</span>
                   <ChevronDown className="h-4 w-4 hidden sm:block" />
                 </button>
                 {userMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
-                    <div className="p-3 border-b border-slate-200 dark:border-slate-700">
-                      <p className="font-medium text-sm">{userName}</p>
-                      <p className="text-xs text-slate-500 truncate">{userEmail}</p>
-                    </div>
+                  <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border bg-white dark:bg-slate-900 shadow-xl z-50">
+                    <div className="p-3 border-b"><p className="font-medium text-sm">{userName}</p><p className="text-xs text-slate-500 truncate">{userEmail}</p></div>
                     <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50">
                       {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
                       {signingOut ? "Signing Out..." : "Sign Out"}
