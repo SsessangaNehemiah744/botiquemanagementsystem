@@ -10,6 +10,7 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
 import { createClient } from "@/lib/supabase/client";
+import { setupSyncListeners, isOnline } from "@/lib/offline";
 
 const cashierNavItems = [
   { href: "/cashier", label: "Dashboard", icon: LayoutDashboard },
@@ -33,6 +34,7 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
   const [signingOut, setSigningOut] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const [online, setOnline] = useState(true);
 
   const supabase = createClient();
 
@@ -49,6 +51,26 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
     getUser();
   }, [supabase, router]);
 
+  // Offline detection
+  useEffect(() => {
+    setOnline(isOnline());
+    setupSyncListeners(() => {
+      setOnline(true);
+      window.location.reload();
+    });
+
+    const handleOffline = () => setOnline(false);
+    const handleOnline = () => setOnline(true);
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) setUserMenuOpen(false);
@@ -62,7 +84,7 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
     setUserMenuOpen(false);
 
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (session?.user) {
       try {
         await fetch("/api/auth/logout", {
@@ -71,7 +93,7 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
           body: JSON.stringify({ user_id: session.user.id }),
         });
       } catch (error) {
-        console.error("Logout API call failed:", error);
+        console.error("Logout error:", error);
       }
     }
 
@@ -129,7 +151,17 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
             <button className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
             <div className="hidden sm:block"><h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">Cashier Dashboard</h1></div>
             <div className="flex items-center gap-3">
-              <button onClick={toggleTheme} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">{theme === "dark" ? <Sun className="h-5 w-5 text-yellow-500" /> : <Moon className="h-5 w-5 text-slate-600" />}</button>
+              {/* Offline Indicator */}
+              {!online && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-50 dark:bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                  Offline Mode
+                </span>
+              )}
+
+              <button onClick={toggleTheme} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+                {theme === "dark" ? <Sun className="h-5 w-5 text-yellow-500" /> : <Moon className="h-5 w-5 text-slate-600" />}
+              </button>
 
               <div className="relative" ref={userMenuRef}>
                 <button onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -140,7 +172,7 @@ export default function CashierLayout({ children }: { children: React.ReactNode 
                 {userMenuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border bg-white dark:bg-slate-900 shadow-xl z-50">
                     <div className="p-3 border-b"><p className="font-medium text-sm">{userName}</p><p className="text-xs text-slate-500 truncate">{userEmail}</p></div>
-                    <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50">
+                    <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
                       {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
                       {signingOut ? "Signing Out..." : "Sign Out"}
                     </button>

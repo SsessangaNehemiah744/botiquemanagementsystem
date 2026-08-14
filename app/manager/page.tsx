@@ -361,7 +361,7 @@ export default function ManagerDashboard() {
             {lowStockItems.length === 0 ? (
               <div className="text-center py-8">
                 <Package className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
-                <p className="text-slate-500 dark:text-slate-400">All items are well stocked! 🎉</p>
+                <p className="text-slate-500 dark:text-slate-400">All items are well stocked! </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -442,7 +442,7 @@ export default function ManagerDashboard() {
               {sortedOverstaying.length === 0 ? (
                 <div className="text-center py-12">
                   <CalendarClock className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
-                  <p className="text-slate-500">No overstaying stock! 🎉</p>
+                  <p className="text-slate-500">No overstaying stock! </p>
                 </div>
               ) : (
                 <div className="space-y-3">

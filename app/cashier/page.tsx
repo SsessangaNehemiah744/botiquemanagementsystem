@@ -57,7 +57,7 @@ export default function CashierDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Welcome Back! 👋</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Welcome Back! </h2>
         <p className="text-sm text-slate-600 dark:text-slate-400">Ready to make some sales today?</p>
       </div>
 

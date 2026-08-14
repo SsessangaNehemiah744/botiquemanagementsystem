@@ -6,12 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ShoppingCart, Package, Users, Truck, Banknote, LayoutDashboard,
   Menu, X, User, Bell, Sun, Moon, LogOut, ChevronDown, Shield,
-  Loader2, UserCheck, Activity, FileText, Search, LogIn, ShoppingBag,ChevronRight
+  Loader2, UserCheck, Activity, FileText, Search, LogIn, ShoppingBag,
+  ChevronRight,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { createClient } from "@/lib/supabase/client";
+import { setupSyncListeners, isOnline } from "@/lib/offline";
 
 const managerNavItems = [
   { href: "/manager", label: "Dashboard", icon: LayoutDashboard },
@@ -45,6 +47,9 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Offline state
+  const [online, setOnline] = useState(true);
+
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [allProfiles, setAllProfiles] = useState<any[]>([]);
@@ -67,7 +72,28 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
     loadExtraData();
   }, [supabase, router]);
 
+  // Offline detection
+  useEffect(() => {
+    setOnline(isOnline());
+    setupSyncListeners(() => {
+      setOnline(true);
+      window.location.reload();
+    });
+
+    const handleOffline = () => setOnline(false);
+    const handleOnline = () => setOnline(true);
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
   const loadExtraData = async () => {
+    if (!isOnline()) return;
     try {
       const response = await fetch("/api/manager/overview");
       const data = await response.json();
@@ -126,7 +152,7 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
         (p.color || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (p.size || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
-      .map((p) => ({ type: "Product", id: p.id, name: p.products?.name || "Product", subtitle: `${p.size} / ${p.color} · ${p.barcode || "No barcode"}`, link: "/manager/inventory" })),
+      .map((p) => ({ type: "Product", id: p.id, name: p.products?.name || "Product", subtitle: `${p.size} / ${p.color}`, link: "/manager/inventory" })),
     ...allCustomers
       .filter((c) =>
         (c.full_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -249,8 +275,18 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
         <div className="flex flex-1 flex-col overflow-hidden">
           <header className="flex h-16 items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6">
             <button className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
-            <div className="hidden sm:block"><h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">Manager Dashboard</h1></div>
+            <div className="hidden sm:block">
+              <h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">Manager Dashboard</h1>
+            </div>
             <div className="flex items-center gap-3">
+              {/* Offline Indicator */}
+              {!online && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-50 dark:bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                  Offline Mode
+                </span>
+              )}
+
               <button onClick={() => { setSearchOpen(true); setSearchQuery(""); }} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
                 <Search className="h-5 w-5 text-slate-400" />
               </button>
@@ -261,7 +297,7 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
 
               <div className="relative" ref={notifRef}>
                 <button onClick={() => { setNotifOpen(!notifOpen); setUserMenuOpen(false); }} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 relative">
-                  <Bell className={`h-5 w-5 ${pendingUsers.length > 0 || recentLogs.length > 0 ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
+                  <Bell className={`h-5 w-5 ${pendingUsers.length > 0 ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
                   {pendingUsers.length > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-yellow-500 text-[10px] font-bold text-white">
                       {pendingUsers.length}
@@ -271,29 +307,25 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
 
                 {notifOpen && (
                   <div className="fixed right-4 top-16 w-96 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50 sm:absolute sm:right-0 sm:top-full sm:mt-2 max-h-96 overflow-y-auto">
-                    <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-                      <h3 className="font-semibold text-sm text-slate-900 dark:text-white">Notifications</h3>
+                    <div className="p-4 border-b">
+                      <h3 className="font-semibold text-sm">Notifications</h3>
                     </div>
-
                     {pendingUsers.length > 0 && (
-                      <Link href="/manager/users" onClick={() => setNotifOpen(false)} className="block p-3 border-b border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-500/10 hover:bg-yellow-100 dark:hover:bg-yellow-500/20">
+                      <Link href="/manager/users" onClick={() => setNotifOpen(false)} className="block p-3 border-b border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-500/10">
                         <div className="flex items-center gap-2">
                           <UserCheck className="h-4 w-4 text-yellow-600" />
-                          <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
-                            {pendingUsers.length} user(s) awaiting activation
-                          </p>
+                          <p className="text-sm font-medium">{pendingUsers.length} user(s) awaiting activation</p>
                         </div>
                       </Link>
                     )}
-
                     {recentLogs.length === 0 ? (
                       <p className="p-6 text-center text-sm text-slate-500">No recent activity</p>
                     ) : (
                       recentLogs.slice(0, 10).map((log) => (
-                        <div key={log.id} className="flex items-start gap-3 p-3 border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <div className="mt-0.5 flex-shrink-0">{getLogIcon(log.action)}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{log.user_name || "System"}</p>
+                        <div key={log.id} className="flex items-start gap-3 p-3 border-b last:border-0 hover:bg-slate-50">
+                          <div className="mt-0.5">{getLogIcon(log.action)}</div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{log.user_name || "System"}</p>
                             <p className="text-xs text-slate-500">{log.action}</p>
                             <p className="text-xs text-slate-400">{new Date(log.created_at).toLocaleTimeString()}</p>
                           </div>
@@ -313,7 +345,7 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
                 {userMenuOpen && (
                   <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border bg-white dark:bg-slate-900 shadow-xl z-50">
                     <div className="p-3 border-b"><p className="font-medium text-sm">{userName}</p><p className="text-xs text-slate-500 truncate">{userEmail}</p></div>
-                    <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50">
+                    <button onClick={handleLogout} disabled={signingOut} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
                       {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
                       {signingOut ? "Signing Out..." : "Sign Out"}
                     </button>

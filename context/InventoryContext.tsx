@@ -8,6 +8,7 @@ import React, {
   useEffect,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { cacheProducts, getCachedProducts, isOnline } from "@/lib/offline";
 
 export type ProductCategory = string;
 
@@ -40,7 +41,6 @@ interface InventoryContextType {
 
 const InventoryContext = createContext<InventoryContextType | null>(null);
 
-// Helper to compress image
 function compressImage(blob: Blob, maxSize: number, quality: number): Promise<Blob> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -108,40 +108,6 @@ async function uploadImageToStorage(
   return urlData.publicUrl;
 }
 
-// Helper to log an action
-async function logSystemAction(
-  supabase: ReturnType<typeof createClient>,
-  action: string,
-  affectedType: string,
-  affectedId: string,
-  affectedName: string,
-  details?: Record<string, unknown>
-) {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("full_name, role")
-      .eq("id", user.id)
-      .single();
-    
-    await supabase.from("system_logs").insert({
-      user_id: user.id,
-      user_name: profile?.full_name || user.email,
-      user_role: profile?.role || "unknown",
-      action,
-      affected_type: affectedType,
-      affected_id: affectedId,
-      affected_name: affectedName,
-      details: details || null,
-      status: "success",
-    });
-  } catch (error) {
-    console.error("Log error:", error);
-  }
-}
-
 export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,13 +115,20 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   const fetchVariants = useCallback(async () => {
     setLoading(true);
+
     const { data, error } = await supabase
       .from("product_variants")
       .select("*, products(name, category, image_url)")
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Fetch error:", error.message);
+      // If offline, load from cache
+      if (!isOnline()) {
+        const cached = await getCachedProducts();
+        if (cached) {
+          setVariants(cached);
+        }
+      }
       setLoading(false);
       return;
     }
@@ -178,6 +151,10 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
 
     setVariants(mapped);
+
+    // Cache for offline use
+    await cacheProducts(mapped);
+
     setLoading(false);
   }, [supabase]);
 
@@ -230,22 +207,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       if (newVariant.barcode) vData.barcode = newVariant.barcode;
       if (imageUrl) vData.image_url = imageUrl;
 
-      const { data: insertedVariant, error: vErr } = await supabase
-        .from("product_variants")
-        .insert(vData)
-        .select("id")
-        .single();
+      const { error: vErr } = await supabase.from("product_variants").insert(vData);
       if (vErr) throw new Error(vErr.message);
-
-      // ✅ LOG the addition
-      await logSystemAction(
-        supabase,
-        "INVENTORY_ADDED",
-        "Product",
-        insertedVariant?.id || productId,
-        newVariant.productName,
-        { size: newVariant.size, color: newVariant.color, quantity: newVariant.stock }
-      );
 
       await fetchVariants();
     },
@@ -273,16 +236,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
       const { error } = await supabase.from("product_variants").update(updates).eq("id", id);
       if (error) throw new Error(error.message);
-
-      // ✅ LOG the update
-      await logSystemAction(
-        supabase,
-        "INVENTORY_UPDATED",
-        "Product",
-        id,
-        data.productName || "Variant"
-      );
-
       await fetchVariants();
     },
     [supabase, fetchVariants]
@@ -297,17 +250,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .update({ stock_quantity: Math.max(0, v.stock + delta) })
         .eq("id", id);
       if (error) throw new Error(error.message);
-
-      // ✅ LOG stock adjustment
-      await logSystemAction(
-        supabase,
-        "STOCK_ADJUSTED",
-        "Product",
-        id,
-        v.productName,
-        { oldStock: v.stock, newStock: Math.max(0, v.stock + delta), delta }
-      );
-
       await fetchVariants();
     },
     [variants, supabase, fetchVariants]
@@ -324,23 +266,11 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Cannot delete: This item has sales history.");
       }
 
-      const variant = variants.find((v) => v.id === id);
-
       const { error } = await supabase.from("product_variants").delete().eq("id", id);
       if (error) throw new Error(error.message);
-
-      // ✅ LOG the deletion
-      await logSystemAction(
-        supabase,
-        "INVENTORY_DELETED",
-        "Product",
-        id,
-        variant?.productName || "Variant"
-      );
-
       await fetchVariants();
     },
-    [supabase, fetchVariants, variants]
+    [supabase, fetchVariants]
   );
 
   return (
