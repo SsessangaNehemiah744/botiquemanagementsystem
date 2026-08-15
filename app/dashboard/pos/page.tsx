@@ -22,6 +22,7 @@ import {
 import { useInventory, type Variant, type ProductCategory } from "@/context/InventoryContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { createClient } from "@/lib/supabase/client";
+import { queueSale, isOnline } from "@/lib/offline";
 
 function formatUGX(amount: number) {
   return new Intl.NumberFormat("en-UG", {
@@ -100,7 +101,6 @@ export default function POSPage() {
     barcode: "",
   });
 
-  // Auto-refresh inventory on mount
   useEffect(() => {
     refreshInventory();
     scannerRef.current?.focus();
@@ -218,7 +218,45 @@ export default function POSPage() {
     }
 
     setProcessing(true);
+
+    const saleData = {
+      items: cart.map((item) => ({
+        variant_id: item.variant.id,
+        quantity: item.quantity,
+        unit_price: item.variant.sellingPrice,
+        cost_price: item.variant.costPrice,
+      })),
+      total_amount: subtotal,
+      discount_amount: 0,
+      payment_method: paymentMethod,
+      amount_tendered: paymentMethod === "cash" ? amountTendered : null,
+      change_amount: paymentMethod === "cash" ? amountTendered - subtotal : null,
+      user_id: null,
+      notes:
+        paymentMethod === "mobile_money"
+          ? `Mobile Money (${mobileMoneyProvider.toUpperCase()}): ${mobileMoneyRef}`
+          : paymentMethod === "card"
+          ? "Card Payment"
+          : null,
+    };
+
     try {
+      // OFFLINE: Queue the sale locally
+      if (!isOnline()) {
+        await queueSale(saleData);
+        if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
+        setShowPaymentModal(false);
+        setShowReceiptModal(true);
+        addNotification({
+          type: "sale",
+          title: "Sale Saved Offline",
+          message: "Will sync when internet returns",
+        });
+        setProcessing(false);
+        return;
+      }
+
+      // ONLINE: Get user and process
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         alert("Session expired. Please log in again.");
@@ -226,26 +264,7 @@ export default function POSPage() {
         return;
       }
 
-      const saleData = {
-        items: cart.map((item) => ({
-          variant_id: item.variant.id,
-          quantity: item.quantity,
-          unit_price: item.variant.sellingPrice,
-          cost_price: item.variant.costPrice,
-        })),
-        total_amount: subtotal,
-        discount_amount: 0,
-        payment_method: paymentMethod,
-        amount_tendered: paymentMethod === "cash" ? amountTendered : null,
-        change_amount: paymentMethod === "cash" ? amountTendered - subtotal : null,
-        user_id: user.id,
-        notes:
-          paymentMethod === "mobile_money"
-            ? `Mobile Money (${mobileMoneyProvider.toUpperCase()}): ${mobileMoneyRef}`
-            : paymentMethod === "card"
-            ? "Card Payment"
-            : null,
-      };
+      saleData.user_id = user.id;
 
       const response = await fetch("/api/sales", {
         method: "POST",
@@ -254,7 +273,16 @@ export default function POSPage() {
       });
 
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Failed to process sale");
+
+      if (!response.ok) {
+        // API failed - queue for later
+        await queueSale(saleData);
+        addNotification({
+          type: "sale",
+          title: "Sale Queued",
+          message: "Will retry when online",
+        });
+      }
 
       if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
       setShowPaymentModal(false);
@@ -266,8 +294,16 @@ export default function POSPage() {
         message: `${formatUGX(subtotal)} via ${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}`,
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to process sale";
-      alert(message);
+      // Any error - queue for later
+      await queueSale(saleData);
+      if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
+      setShowPaymentModal(false);
+      setShowReceiptModal(true);
+      addNotification({
+        type: "sale",
+        title: "Sale Saved Offline",
+        message: "Will sync when internet returns",
+      });
     } finally {
       setProcessing(false);
     }

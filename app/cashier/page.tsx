@@ -9,8 +9,10 @@ import {
   Package,
   Loader2,
   ArrowRight,
-  TrendingUp,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+import { isOnline, getCachedProducts } from "@/lib/offline";
 
 function formatUGX(amount: number) {
   return new Intl.NumberFormat("en-UG", {
@@ -22,28 +24,47 @@ function formatUGX(amount: number) {
 
 export default function CashierDashboard() {
   const [loading, setLoading] = useState(true);
+  const [online, setOnline] = useState(true);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [totalInventory, setTotalInventory] = useState(0);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const response = await fetch("/api/dashboard/stats");
-        const data = await response.json();
-        if (response.ok) {
-          setTotalRevenue(data.totalRevenue || 0);
-          setTotalItems(data.totalItems || 0);
-          setTotalInventory(data.totalInventory || 0);
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    }
+    setOnline(isOnline());
     fetchData();
   }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+
+    // OFFLINE: Use cached data
+    if (!isOnline()) {
+      const cachedProducts = await getCachedProducts();
+      if (cachedProducts && Array.isArray(cachedProducts)) {
+        setTotalInventory(cachedProducts.length);
+        // Revenue and items sold not available offline
+        setTotalRevenue(0);
+        setTotalItems(0);
+      }
+      setLoading(false);
+      return;
+    }
+
+    // ONLINE: Fetch today's stats
+    try {
+      const response = await fetch("/api/dashboard/stats");
+      const data = await response.json();
+      if (response.ok) {
+        setTotalRevenue(data.totalRevenue || 0);  // Today only (from API)
+        setTotalItems(data.totalItems || 0);       // Today only (from API)
+        setTotalInventory(data.totalInventory || 0); // All time
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -58,8 +79,17 @@ export default function CashierDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Welcome Back! 👋</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-400">Ready to make some sales today?</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Ready to make some sales today?
+        </p>
       </div>
+
+      {/* Online/Offline indicator */}
+      {!online && (
+        <div className="rounded-md bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 p-3 text-sm text-yellow-700 dark:text-yellow-400">
+          ⚠️ You are offline. Showing cached data.
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -67,16 +97,19 @@ export default function CashierDashboard() {
           <DollarSign className="h-6 w-6 text-emerald-500 mb-2" />
           <p className="text-sm text-slate-600 dark:text-slate-400">Today&apos;s Revenue</p>
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(totalRevenue)}</p>
+          {!online && <p className="text-xs text-slate-400 mt-1">Not available offline</p>}
         </div>
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <ShoppingBag className="h-6 w-6 text-blue-500 mb-2" />
-          <p className="text-sm text-slate-600 dark:text-slate-400">Items Sold</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">Items Sold Today</p>
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{totalItems}</p>
+          {!online && <p className="text-xs text-slate-400 mt-1">Not available offline</p>}
         </div>
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <Package className="h-6 w-6 text-purple-500 mb-2" />
           <p className="text-sm text-slate-600 dark:text-slate-400">Products Available</p>
           <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{totalInventory}</p>
+          {!online && <p className="text-xs text-slate-400 mt-1">Cached data</p>}
         </div>
       </div>
 
@@ -98,7 +131,7 @@ export default function CashierDashboard() {
           <p className="text-xs text-slate-500 mt-1">Check product availability</p>
         </Link>
         <Link href="/cashier/customers" className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:shadow-lg transition-all">
-          <TrendingUp className="h-6 w-6 text-purple-500 mb-2" />
+          <ShoppingBag className="h-6 w-6 text-purple-500 mb-2" />
           <h3 className="font-bold text-slate-900 dark:text-white">Customers</h3>
           <p className="text-xs text-slate-500 mt-1">Search and add customers</p>
         </Link>

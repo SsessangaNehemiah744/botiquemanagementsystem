@@ -8,13 +8,20 @@ export async function GET() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get variants WITH product names (join)
+    // Get today's date range
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayISO = today.toISOString();
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowISO = tomorrow.toISOString();
+
+    // Get ALL variants WITH product names (for inventory)
     const { data: variants } = await supabase
       .from("product_variants")
       .select("*, products(name, category)")
       .order("created_at", { ascending: true });
-
-    console.log("Variants with products:", variants?.length, variants?.[0]?.products?.name);
 
     // Overstaying stock (older than 2 months)
     const twoMonthsAgo = new Date();
@@ -25,28 +32,34 @@ export async function GET() {
       (v: { created_at: string }) => new Date(v.created_at) < new Date(twoMonthsAgoISO)
     );
 
-    // Get sales
+    // Get TODAY'S sales only
     const { data: sales } = await supabase
       .from("sales")
       .select("*")
+      .gte("created_at", todayISO)
+      .lt("created_at", tomorrowISO)
       .order("created_at", { ascending: false });
 
+    // Calculate TODAY'S revenue
     const totalRevenue = (sales || []).reduce(
       (sum: number, s: { total_amount: number }) => sum + Number(s.total_amount),
       0
     );
 
-    // Get sale items
+    // Get TODAY'S sale items
     const { data: saleItems } = await supabase
       .from("sale_items")
-      .select("quantity, product_variants(*, products(name))");
+      .select("quantity, product_variants(*, products(name))")
+      .gte("created_at", todayISO)
+      .lt("created_at", tomorrowISO);
 
+    // Calculate TODAY'S items sold
     const totalItems = (saleItems || []).reduce(
       (sum: number, i: { quantity: number }) => sum + i.quantity,
       0
     );
 
-    // Top selling
+    // Top selling TODAY
     const topMap = new Map<string, { name: string; quantity: number; price: number }>();
     (saleItems || []).forEach((item: unknown) => {
       const si = item as {
@@ -67,30 +80,50 @@ export async function GET() {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
 
-    // Low stock
+    // Low stock items (from ALL products)
     const lowStockItems = (variants || []).filter(
       (v: { stock_quantity: number; low_stock_threshold: number }) =>
         Number(v.stock_quantity) <= Number(v.low_stock_threshold) && Number(v.stock_quantity) > 0
     );
 
-    // Customers
-    const { data: customers } = await supabase.from("customers").select("*");
+    // Get ALL customers (for total count)
+    const { data: allCustomers } = await supabase
+      .from("customers")
+      .select("*");
+
+    // Get TODAY'S customers served (unique from today's sales)
+    const todayCustomerIds = [
+      ...new Set(
+        (sales || [])
+          .filter((s: { customer_id: string | null }) => s.customer_id)
+          .map((s: { customer_id: string | null }) => s.customer_id as string)
+      ),
+    ];
+
+    let todayCustomers: unknown[] = [];
+    if (todayCustomerIds.length > 0) {
+      const { data: customerData } = await supabase
+        .from("customers")
+        .select("*")
+        .in("id", todayCustomerIds);
+      todayCustomers = customerData || [];
+    }
 
     return NextResponse.json({
-      totalRevenue,
-      totalSales: (sales || []).length,
-      totalItems,
-      lowStockCount: lowStockItems.length,
-      customersServedCount: (customers || []).length,
-      totalCustomers: (customers || []).length,
-      totalInventory: (variants || []).length,
-      sales: sales || [],
-      lowStockItems,
-      customersServed: customers || [],
-      saleItems: saleItems || [],
-      newInventory: variants || [],
-      topSelling,
-      overstayingStock,
+      totalRevenue,                        // TODAY only
+      totalSales: (sales || []).length,    // TODAY only
+      totalItems,                          // TODAY only
+      lowStockCount: lowStockItems.length, // ALL products
+      customersServedCount: todayCustomers.length, // TODAY only
+      totalCustomers: (allCustomers || []).length, // ALL time
+      totalInventory: (variants || []).length,      // ALL time
+      sales: sales || [],                  // TODAY only
+      lowStockItems,                       // ALL products
+      customersServed: todayCustomers,     // TODAY only
+      saleItems: saleItems || [],          // TODAY only
+      newInventory: variants || [],        // ALL products
+      topSelling,                          // TODAY only
+      overstayingStock,                    // ALL products
       overstayingCount: overstayingStock.length,
     });
 

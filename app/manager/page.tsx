@@ -25,6 +25,7 @@ import {
   Activity,
   FileText,
 } from "lucide-react";
+import { getCachedProducts, getCachedCustomers, isOnline, getLastSync } from "@/lib/offline";
 
 function formatUGX(amount: number) {
   return new Intl.NumberFormat("en-UG", {
@@ -76,6 +77,7 @@ export default function ManagerDashboard() {
   const [newInventory, setNewInventory] = useState<InventoryItem[]>([]);
   const [topSelling, setTopSelling] = useState<unknown[]>([]);
   const [overstayingStock, setOverstayingStock] = useState<InventoryItem[]>([]);
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
 
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -88,6 +90,44 @@ export default function ManagerDashboard() {
   const loadData = async () => {
     setLoading(true);
     setError("");
+
+    // OFFLINE: Load from cache
+    if (!isOnline()) {
+      const cachedProducts = await getCachedProducts();
+      const cachedCustomers = await getCachedCustomers();
+      const lastSync = await getLastSync();
+
+      if (cachedProducts && Array.isArray(cachedProducts)) {
+        setNewInventory(cachedProducts);
+        setTotalInventory(cachedProducts.length);
+        
+        // Calculate low stock from cached
+        const lowStock = cachedProducts.filter(
+          (v: InventoryItem) =>
+            Number(v.stock_quantity) <= Number(v.low_stock_threshold) && Number(v.stock_quantity) > 0
+        );
+        setLowStockItems(lowStock);
+        setLowStockCount(lowStock.length);
+
+        // Calculate overstaying stock (older than 2 months)
+        const twoMonthsAgo = new Date();
+        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+        const overstaying = cachedProducts.filter(
+          (v: InventoryItem) => new Date(v.created_at) < twoMonthsAgo
+        );
+        setOverstayingStock(overstaying);
+      }
+
+      if (cachedCustomers && Array.isArray(cachedCustomers)) {
+        setTotalCustomers(cachedCustomers.length);
+      }
+
+      setLastSyncTime(lastSync);
+      setLoading(false);
+      return;
+    }
+
+    // ONLINE: Fetch normally
     try {
       const response = await fetch("/api/dashboard/stats");
       const data = await response.json();
@@ -219,7 +259,12 @@ export default function ManagerDashboard() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Manager Dashboard</h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {totalInventory} products · {totalCustomers} customers · Real-time overview
+            {totalInventory} products · {totalCustomers} customers
+            {lastSyncTime && !isOnline() && (
+              <span className="text-yellow-600 dark:text-yellow-400">
+                {" "}· Last synced: {new Date(lastSyncTime).toLocaleTimeString()}
+              </span>
+            )}
           </p>
         </div>
         <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700">
@@ -227,6 +272,12 @@ export default function ManagerDashboard() {
           Refresh
         </button>
       </div>
+
+      {!isOnline() && (
+        <div className="rounded-md bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 p-3 text-sm text-yellow-700 dark:text-yellow-400">
+          ⚠️ You are offline. Showing cached data from last sync.
+        </div>
+      )}
 
       {error && (
         <div className="rounded-md bg-red-50 dark:bg-red-500/10 border border-red-200 p-4 text-sm text-red-600">
@@ -280,7 +331,9 @@ export default function ManagerDashboard() {
             Top Selling Today
           </h3>
           {topSelling.length === 0 ? (
-            <p className="text-center py-8 text-slate-400">No sales yet today.</p>
+            <p className="text-center py-8 text-slate-400">
+              {isOnline() ? "No sales yet today." : "Not available offline"}
+            </p>
           ) : (
             <div className="space-y-2">
               {(topSelling as Array<{ name: string; quantity: number; price: number }>).map((item, i) => (
@@ -323,7 +376,9 @@ export default function ManagerDashboard() {
           </div>
 
           {sortedInventory.length === 0 ? (
-            <p className="text-center py-8 text-slate-400">No inventory items.</p>
+            <p className="text-center py-8 text-slate-400">
+              {isOnline() ? "No inventory items." : "No cached inventory available."}
+            </p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {sortedInventory.slice(0, 5).map((item) => (
@@ -350,7 +405,7 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      {/* ===== LOW STOCK POPUP (WITH IMAGES) ===== */}
+      {/* LOW STOCK POPUP */}
       {activePopup === "lowStock" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[80vh] overflow-y-auto">
@@ -391,7 +446,7 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      {/* ===== REVENUE POPUP ===== */}
+      {/* REVENUE POPUP */}
       {activePopup === "revenue" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-2xl rounded-lg border bg-white dark:bg-slate-900 max-h-[80vh] flex flex-col">
@@ -401,7 +456,9 @@ export default function ManagerDashboard() {
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               {sales.length === 0 ? (
-                <p className="text-center py-8 text-slate-500">No sales recorded today.</p>
+                <p className="text-center py-8 text-slate-500">
+                  {isOnline() ? "No sales recorded today." : "Sales history not available offline."}
+                </p>
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm font-medium px-3">Total: {formatUGX(totalRevenue)}</p>
@@ -421,7 +478,7 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      {/* ===== OVERSTAYING POPUP ===== */}
+      {/* OVERSTAYING POPUP */}
       {activePopup === "overstaying" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-4xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl max-h-[85vh] flex flex-col">

@@ -8,6 +8,8 @@ import React, {
   useEffect,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { cacheProducts, getCachedProducts, isOnline } from "@/lib/offline";
+
 
 export type ProductCategory = string;
 
@@ -125,7 +127,7 @@ async function logSystemAction(
       .select("full_name, role")
       .eq("id", user.id)
       .single();
-    
+
     await supabase.from("system_logs").insert({
       user_id: user.id,
       user_name: profile?.full_name || user.email,
@@ -156,6 +158,15 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       console.error("Fetch error:", error.message);
+      
+      // OFFLINE: Load from cache
+      if (!isOnline()) {
+        const cached = await getCachedProducts();
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setVariants(cached as Variant[]);
+        }
+      }
+      
       setLoading(false);
       return;
     }
@@ -178,6 +189,10 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
 
     setVariants(mapped);
+
+    // CACHE for offline use
+    await cacheProducts(mapped);
+
     setLoading(false);
   }, [supabase]);
 
@@ -237,7 +252,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .single();
       if (vErr) throw new Error(vErr.message);
 
-      // ✅ LOG the addition
       await logSystemAction(
         supabase,
         "INVENTORY_ADDED",
@@ -274,7 +288,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.from("product_variants").update(updates).eq("id", id);
       if (error) throw new Error(error.message);
 
-      // ✅ LOG the update
       await logSystemAction(
         supabase,
         "INVENTORY_UPDATED",
@@ -298,7 +311,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .eq("id", id);
       if (error) throw new Error(error.message);
 
-      // ✅ LOG stock adjustment
       await logSystemAction(
         supabase,
         "STOCK_ADJUSTED",
@@ -329,7 +341,6 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.from("product_variants").delete().eq("id", id);
       if (error) throw new Error(error.message);
 
-      // ✅ LOG the deletion
       await logSystemAction(
         supabase,
         "INVENTORY_DELETED",

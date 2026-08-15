@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   ShoppingCart, Mail, Lock, Loader2, ArrowLeft, X,
 } from "lucide-react";
+import { isOnline, getCachedSession, cacheSession } from "@/lib/offline";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -20,6 +21,24 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+
+    // OFFLINE CHECK: Try cached session
+    if (!isOnline()) {
+      const cached = await getCachedSession();
+      if (cached && cached.user) {
+        // Use cached session
+        const cachedProfile = cached.profile;
+        if (cachedProfile?.role === "cashier") {
+          window.location.href = "/cashier";
+        } else {
+          window.location.href = "/manager";
+        }
+        return;
+      }
+      setError("No internet connection. Please connect to log in for the first time.");
+      setLoading(false);
+      return;
+    }
 
     try {
       const { data, error: loginError } = await supabase.auth.signInWithPassword({
@@ -51,6 +70,14 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
+
+      // Cache session for offline use
+      await cacheSession({
+        user: data.user,
+        session: data.session,
+        profile: profile,
+        timestamp: Date.now(),
+      });
 
       // Create session record
       const tokenId = crypto.randomUUID();

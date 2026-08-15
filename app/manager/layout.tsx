@@ -6,12 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ShoppingCart, Package, Users, Truck, Banknote, LayoutDashboard,
   Menu, X, User, Bell, Sun, Moon, LogOut, ChevronDown, Shield,
-  Loader2, UserCheck, Activity, FileText, Search, LogIn, ShoppingBag,ChevronRight
+  Loader2, UserCheck, Activity, FileText, Search, LogIn, ShoppingBag, ChevronRight,
+  Wifi, WifiOff,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useInventory } from "@/context/InventoryContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { createClient } from "@/lib/supabase/client";
+import { setupSyncListeners, isOnline, getQueuedSalesCount, getCachedSession } from "@/lib/offline";
 
 const managerNavItems = [
   { href: "/manager", label: "Dashboard", icon: LayoutDashboard },
@@ -53,21 +55,74 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
 
   const supabase = createClient();
 
+  // Online/Offline state
+  const [online, setOnline] = useState(true);
+  const [pendingSync, setPendingSync] = useState(0);
+
   useEffect(() => {
     async function getUser() {
       setSessionLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { router.push("/login"); return; }
-      const user = session.user;
-      setUserEmail(user.email || "");
-      setUserName(user.user_metadata?.full_name || "Manager");
-      setSessionLoading(false);
+
+      // FIRST: Try cached session (works both online and offline)
+      const cached = await getCachedSession();
+
+      // SECOND: Try Supabase session (online only)
+      let supabaseSession = null;
+      try {
+        const { data } = await supabase.auth.getSession();
+        supabaseSession = data.session;
+      } catch (error) {
+        console.log("Supabase unreachable, using cached session");
+      }
+
+      // If we have either session, allow access
+      if (cached?.user || supabaseSession?.user) {
+        const user = supabaseSession?.user || cached?.user;
+        const profile = cached?.profile || null;
+        setUserEmail(user.email || "");
+        setUserName(
+          user.user_metadata?.full_name ||
+          profile?.full_name ||
+          "Manager"
+        );
+        setSessionLoading(false);
+        return;
+      }
+
+      // No session at all - redirect to login
+      router.push("/login");
     }
     getUser();
     loadExtraData();
   }, [supabase, router]);
 
+  // Online/Offline detection
+  useEffect(() => {
+    setOnline(isOnline());
+    setupSyncListeners(async () => {
+      setOnline(true);
+      setPendingSync(0);
+      window.location.reload();
+    });
+
+    const handleOffline = () => setOnline(false);
+    const handleOnline = async () => {
+      setOnline(true);
+      const count = await getQueuedSalesCount();
+      setPendingSync(count);
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
   const loadExtraData = async () => {
+    if (!isOnline()) return;
     try {
       const response = await fetch("/api/manager/overview");
       const data = await response.json();
@@ -96,18 +151,17 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
     setSigningOut(true);
     setUserMenuOpen(false);
 
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (session?.user) {
-      try {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
         await fetch("/api/auth/logout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: session.user.id }),
         });
-      } catch (error) {
-        console.error("Logout API call failed:", error);
       }
+    } catch (error) {
+      console.error("Logout error:", error);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -251,6 +305,20 @@ export default function ManagerLayout({ children }: { children: React.ReactNode 
             <button className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
             <div className="hidden sm:block"><h1 className="text-sm font-medium text-slate-600 dark:text-slate-300">Manager Dashboard</h1></div>
             <div className="flex items-center gap-3">
+              {/* Online/Offline Indicator */}
+              {online ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <Wifi className="h-3.5 w-3.5" />
+                  Online
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                  <WifiOff className="h-3.5 w-3.5" />
+                  Offline
+                  {pendingSync > 0 && ` · ${pendingSync} pending`}
+                </span>
+              )}
+
               <button onClick={() => { setSearchOpen(true); setSearchQuery(""); }} className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
                 <Search className="h-5 w-5 text-slate-400" />
               </button>
