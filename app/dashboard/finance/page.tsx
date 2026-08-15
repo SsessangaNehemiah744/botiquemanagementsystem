@@ -4,10 +4,7 @@ import { useState, useEffect } from "react";
 import {
   X,
   Loader2,
-  TrendingUp,
-  TrendingDown,
   DollarSign,
-  Search,
   RefreshCw,
   Wallet,
   FileText,
@@ -16,6 +13,13 @@ import {
   AlertTriangle,
   PieChart,
   ArrowRight,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  CreditCard,
+  Smartphone,
+  Banknote,
+  ChevronDown,
 } from "lucide-react";
 
 function formatUGX(amount: number) {
@@ -26,36 +30,40 @@ function formatUGX(amount: number) {
   }).format(amount);
 }
 
+interface FinanceData {
+  paymentBreakdown: { cash: number; mobile_money: number; card: number; credit: number };
+  mobileMoneyRefs: Array<{ reference: string; amount: number; time: string }>;
+  totalRevenue: number;
+  totalCOGS: number;
+  grossProfit: number;
+  totalExpenses: number;
+  netProfit: number;
+  totalIncome: number;
+  customerDebts: Array<{ id: string; name: string; amountOwed: number; phone?: string }>;
+  supplierBalances: Array<{ id: string; name: string; amountOwed: number; phone?: string }>;
+  expenseBreakdown: Array<{ category: string; amount: number }>;
+  systemDeposits: number;
+  actualDeposits: number;
+  reconciliationDifference: number;
+  salesCount: number;
+  itemsSold: number;
+}
+
 export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [activeReport, setActiveReport] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [data, setData] = useState<FinanceData | null>(null);
+  const [dailyData, setDailyData] = useState<FinanceData | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const [data, setData] = useState<{
-    paymentBreakdown: { cash: number; mobile_money: number; card: number; credit: number };
-    mobileMoneyRefs: Array<{ reference: string; amount: number; time: string }>;
-    totalRevenue: number;
-    totalCOGS: number;
-    grossProfit: number;
-    totalExpenses: number;
-    netProfit: number;
-    totalIncome: number;
-    customerDebts: Array<{ id: string; name: string; amountOwed: number; phone?: string }>;
-    supplierBalances: Array<{ id: string; name: string; amountOwed: number; phone?: string }>;
-    expenseBreakdown: Array<{ category: string; amount: number }>;
-    systemDeposits: number;
-    actualDeposits: number;
-    reconciliationDifference: number;
-    salesCount: number;
-    itemsSold: number;
-  } | null>(null);
-
-  const loadData = async () => {
+  const loadOverallData = async () => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/finance/reports");
+      const response = await fetch("/api/finance?type=overall");
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to load");
       setData(result);
@@ -67,13 +75,45 @@ export default function FinancePage() {
     }
   };
 
+  const loadDailyData = async (date?: string) => {
+    setError("");
+    try {
+      const targetDate = date || selectedDate;
+      const response = await fetch(`/api/finance?type=daily&date=${targetDate}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to load daily data");
+      setDailyData(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load daily data");
+    }
+  };
+
   useEffect(() => {
-    loadData();
+    loadOverallData();
   }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    await loadOverallData();
+    if (activeReport === "daily") {
+      await loadDailyData();
+    }
+  };
+
+  const handleOpenReport = (report: string) => {
+    setActiveReport(report);
+    if (report === "daily") {
+      loadDailyData();
+    } else {
+      loadOverallData();
+    }
+  };
+
+  const handleDateChange = (date: string) => {
+    setSelectedDate(date);
+    if (activeReport === "daily") {
+      loadDailyData(date);
+    }
   };
 
   const closeReport = () => setActiveReport(null);
@@ -94,10 +134,14 @@ export default function FinancePage() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Financial Dashboard</h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Simple, actionable money reports
+            Track your boutique's financial health
           </p>
         </div>
-        <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700">
+        <button 
+          onClick={handleRefresh} 
+          disabled={refreshing} 
+          className="flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+        >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
         </button>
@@ -109,65 +153,111 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* THREE BIG BUTTONS */}
+      {/* Quick Stats Cards */}
+      {data && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600 dark:text-slate-400">Total Revenue</p>
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
+            </div>
+            <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{formatUGX(data.totalRevenue)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600 dark:text-slate-400">Net Profit</p>
+              <DollarSign className="h-4 w-4 text-blue-500" />
+            </div>
+            <p className={`mt-2 text-2xl font-bold ${data.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {formatUGX(data.netProfit)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600 dark:text-slate-400">Total Expenses</p>
+              <TrendingDown className="h-4 w-4 text-red-500" />
+            </div>
+            <p className="mt-2 text-2xl font-bold text-red-600">{formatUGX(data.totalExpenses)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600 dark:text-slate-400">Items Sold</p>
+              <FileText className="h-4 w-4 text-purple-500" />
+            </div>
+            <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{data.itemsSold}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Report Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        {/* Button 1: Daily Sales Closure */}
+        {/* Daily Sales Report */}
         <button
-          onClick={() => setActiveReport("daily")}
-          className="rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-500/10 p-6 text-left hover:border-emerald-400 dark:hover:border-emerald-600 hover:shadow-lg transition-all"
+          onClick={() => handleOpenReport("daily")}
+          className="group rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 p-6 text-left hover:border-emerald-400 dark:hover:border-emerald-600 hover:shadow-lg transition-all"
         >
-          <FileText className="h-10 w-10 text-emerald-600 dark:text-emerald-400 mb-3" />
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">How did we do today?</h3>
+          <div className="flex items-start justify-between">
+            <FileText className="h-10 w-10 text-emerald-600 dark:text-emerald-400 mb-3" />
+            <Calendar className="h-5 w-5 text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Daily Sales Report</h3>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Daily Sales Closure Report — cash drawer count, mobile money references
+            View sales, payments, and cash drawer for any day
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-sm font-medium">
-            Open Report <ArrowRight className="h-4 w-4" />
+            Open Report <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
 
-        {/* Button 2: P&L */}
+        {/* P&L Report */}
         <button
-          onClick={() => setActiveReport("pnl")}
-          className="rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-500/10 p-6 text-left hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-lg transition-all"
+          onClick={() => handleOpenReport("pnl")}
+          className="group rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 p-6 text-left hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-lg transition-all"
         >
-          <DollarSign className="h-10 w-10 text-blue-600 dark:text-blue-400 mb-3" />
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Are we profitable?</h3>
+          <div className="flex items-start justify-between">
+            <DollarSign className="h-10 w-10 text-blue-600 dark:text-blue-400 mb-3" />
+            <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Profit & Loss</h3>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Profit & Loss Statement — revenue, COGS, expenses, net profit
+            Understand your profitability and margins
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium">
-            Open Report <ArrowRight className="h-4 w-4" />
+            Open Report <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
 
-        {/* Button 3: Who owes us / Who do we owe */}
+        {/* Debts Report */}
         <button
-          onClick={() => setActiveReport("debts")}
-          className="rounded-xl border-2 border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-500/10 p-6 text-left hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-lg transition-all"
+          onClick={() => handleOpenReport("debts")}
+          className="group rounded-xl border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-500/10 dark:to-pink-500/10 p-6 text-left hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-lg transition-all"
         >
-          <Users className="h-10 w-10 text-purple-600 dark:text-purple-400 mb-3" />
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Who owes us / Who do we owe?</h3>
+          <div className="flex items-start justify-between">
+            <Users className="h-10 w-10 text-purple-600 dark:text-purple-400 mb-3" />
+            <Truck className="h-5 w-5 text-purple-600 dark:text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Debts & Credits</h3>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Customer debts & supplier balances in one view
+            Track customer debts and supplier balances
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 text-sm font-medium">
-            Open Report <ArrowRight className="h-4 w-4" />
+            Open Report <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
       </div>
 
       {/* Advanced Reports */}
-      <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
         <details className="group">
           <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-emerald-600 flex items-center gap-2">
             <PieChart className="h-4 w-4" />
             Advanced Reports
             <span className="text-xs text-slate-400">(Expenses, Bank Reconciliation)</span>
+            <ChevronDown className="h-4 w-4 ml-auto group-open:rotate-180 transition-transform" />
           </summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <button
-              onClick={() => setActiveReport("expenses")}
+              onClick={() => handleOpenReport("expenses")}
               className="rounded-md border border-slate-200 dark:border-slate-700 p-4 text-left hover:border-emerald-300 hover:shadow transition-all"
             >
               <Wallet className="h-6 w-6 text-orange-500 mb-2" />
@@ -175,7 +265,7 @@ export default function FinancePage() {
               <p className="text-xs text-slate-500 mt-1">Where is cash leaking?</p>
             </button>
             <button
-              onClick={() => setActiveReport("reconciliation")}
+              onClick={() => handleOpenReport("reconciliation")}
               className="rounded-md border border-slate-200 dark:border-slate-700 p-4 text-left hover:border-emerald-300 hover:shadow transition-all"
             >
               <AlertTriangle className="h-6 w-6 text-red-500 mb-2" />
@@ -186,80 +276,120 @@ export default function FinancePage() {
         </details>
       </div>
 
-      {/* ===== REPORT 1: DAILY SALES CLOSURE ===== */}
-      {activeReport === "daily" && data && (
+      {/* ===== DAILY SALES REPORT MODAL ===== */}
+      {activeReport === "daily" && dailyData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
+          <div className="w-full max-w-3xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">📋 Daily Sales Closure Report</h3>
-              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Payment Breakdown */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-md bg-emerald-50 dark:bg-emerald-500/10 p-4">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Cash Sales</p>
-                  <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(data.paymentBreakdown.cash)}</p>
-                </div>
-                <div className="rounded-md bg-yellow-50 dark:bg-yellow-500/10 p-4">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Mobile Money</p>
-                  <p className="text-xl font-bold text-yellow-600 dark:text-yellow-400">{formatUGX(data.paymentBreakdown.mobile_money)}</p>
-                </div>
-                <div className="rounded-md bg-blue-50 dark:bg-blue-500/10 p-4">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Bank Card</p>
-                  <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatUGX(data.paymentBreakdown.card)}</p>
-                </div>
-                <div className="rounded-md bg-purple-50 dark:bg-purple-500/10 p-4">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Credit Sales</p>
-                  <p className="text-xl font-bold text-purple-600 dark:text-purple-400">{formatUGX(data.paymentBreakdown.credit)}</p>
-                </div>
-              </div>
-
-              {/* Expected Cash */}
-              <div className="rounded-md bg-slate-50 dark:bg-slate-800 p-4">
-                <div className="flex justify-between">
-                  <span className="font-medium text-slate-900 dark:text-white">Expected Cash in Drawer:</span>
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(data.paymentBreakdown.cash)}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Count the drawer and compare. If different, investigate immediately.</p>
-              </div>
-
-              {/* Mobile Money References */}
               <div>
-                <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Mobile Money References</h4>
-                {data.mobileMoneyRefs.length === 0 ? (
-                  <p className="text-sm text-slate-500">No mobile money transactions today.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {data.mobileMoneyRefs.map((ref, i) => (
-                      <div key={i} className="flex justify-between text-sm border-b pb-1">
-                        <span className="font-mono text-xs">{ref.reference}</span>
-                        <span className="font-bold">{formatUGX(ref.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">📋 Daily Sales Report</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  {new Date(selectedDate).toLocaleDateString('en-UG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
               </div>
+              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-              <div className="border-t pt-3 flex justify-between text-sm">
-                <span className="text-slate-600 dark:text-slate-400">Total Sales ({data.salesCount} transactions, {data.itemsSold} items)</span>
-                <span className="font-bold text-slate-900 dark:text-white">{formatUGX(data.totalRevenue)}</span>
+            {/* Date Picker */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                Select Date
+              </label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Payment Breakdown */}
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="rounded-md bg-emerald-50 dark:bg-emerald-500/10 p-4">
+                <div className="flex items-center gap-2">
+                  <Banknote className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Cash Sales</p>
+                </div>
+                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-2">{formatUGX(dailyData.paymentBreakdown.cash)}</p>
+              </div>
+              <div className="rounded-md bg-yellow-50 dark:bg-yellow-500/10 p-4">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Mobile Money</p>
+                </div>
+                <p className="text-xl font-bold text-yellow-600 dark:text-yellow-400 mt-2">{formatUGX(dailyData.paymentBreakdown.mobile_money)}</p>
+              </div>
+              <div className="rounded-md bg-blue-50 dark:bg-blue-500/10 p-4">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Card Sales</p>
+                </div>
+                <p className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-2">{formatUGX(dailyData.paymentBreakdown.card)}</p>
+              </div>
+              <div className="rounded-md bg-purple-50 dark:bg-purple-500/10 p-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Credit Sales</p>
+                </div>
+                <p className="text-xl font-bold text-purple-600 dark:text-purple-400 mt-2">{formatUGX(dailyData.paymentBreakdown.credit)}</p>
               </div>
             </div>
 
-            <button onClick={() => window.print()} className="mt-6 w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500">Print Report</button>
+            {/* Expected Cash */}
+            <div className="rounded-md bg-slate-50 dark:bg-slate-800 p-4 mb-6">
+              <div className="flex justify-between">
+                <span className="font-medium text-slate-900 dark:text-white">Expected Cash in Drawer:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(dailyData.paymentBreakdown.cash)}</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Count the drawer and compare. If different, investigate immediately.</p>
+            </div>
+
+            {/* Mobile Money References */}
+            <div className="mb-6">
+              <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Mobile Money References</h4>
+              {dailyData.mobileMoneyRefs.length === 0 ? (
+                <p className="text-sm text-slate-500">No mobile money transactions for this date.</p>
+              ) : (
+                <div className="space-y-2">
+                  {dailyData.mobileMoneyRefs.map((ref, i) => (
+                    <div key={i} className="flex justify-between text-sm border-b pb-1">
+                      <span className="font-mono text-xs">{ref.reference}</span>
+                      <span className="font-bold">{formatUGX(ref.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Summary */}
+            <div className="border-t pt-3 flex justify-between text-sm">
+              <span className="text-slate-600 dark:text-slate-400">
+                Total Sales ({dailyData.salesCount} transactions, {dailyData.itemsSold} items)
+              </span>
+              <span className="font-bold text-slate-900 dark:text-white">{formatUGX(dailyData.totalRevenue)}</span>
+            </div>
+
+            <button 
+              onClick={() => window.print()} 
+              className="mt-6 w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+            >
+              Print Report
+            </button>
           </div>
         </div>
       )}
 
-      {/* ===== REPORT 2: P&L ===== */}
+      {/* ===== P&L REPORT MODAL ===== */}
       {activeReport === "pnl" && data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-slate-900 dark:text-white">💰 Profit & Loss Statement</h3>
-              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
             <div className="space-y-3">
@@ -287,18 +417,25 @@ export default function FinancePage() {
               </div>
             </div>
 
-            <button onClick={() => window.print()} className="mt-6 w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500">Print Report</button>
+            <button 
+              onClick={() => window.print()} 
+              className="mt-6 w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+            >
+              Print Report
+            </button>
           </div>
         </div>
       )}
 
-      {/* ===== REPORT 3: DEBTS ===== */}
+      {/* ===== DEBTS REPORT MODAL ===== */}
       {activeReport === "debts" && data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-2xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-slate-900 dark:text-white">👥 Debts Report</h3>
-              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
             {/* Customer Debts */}
@@ -344,13 +481,15 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* ===== REPORT 4: EXPENSES ===== */}
+      {/* ===== EXPENSES REPORT MODAL ===== */}
       {activeReport === "expenses" && data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-slate-900 dark:text-white">💸 Expense Breakdown</h3>
-              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
             </div>
             {data.expenseBreakdown.length === 0 ? (
               <p className="text-center py-8 text-slate-500">No expenses recorded.</p>
@@ -372,13 +511,15 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* ===== REPORT 5: BANK RECONCILIATION ===== */}
+      {/* ===== RECONCILIATION REPORT MODAL ===== */}
       {activeReport === "reconciliation" && data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-slate-900 dark:text-white">🏦 Bank Reconciliation</h3>
-              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+              <button onClick={closeReport} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
             </div>
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
