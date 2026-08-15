@@ -204,7 +204,7 @@ export default function UserManagementPage() {
       {activeTab === "pending" && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
           {pendingUsers.length === 0 ? (
-            <p className="py-8 text-center text-slate-500 dark:text-slate-400">No pending users. 🎉</p>
+            <p className="py-8 text-center text-slate-500 dark:text-slate-400">No pending users. </p>
           ) : (
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800/50">
