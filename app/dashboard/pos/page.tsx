@@ -666,7 +666,55 @@ export default function POSPage() {
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">Add Captured Item</h3>
               <button onClick={() => setShowCaptureModal(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
             </div>
-            <div className="mb-4"><img src={capturedImage} alt="Captured" className="w-full h-48 object-cover rounded-lg border" /></div>
+            <div className="mb-4">
+              <img src={capturedImage} alt="Captured" className="w-full h-48 object-cover rounded-lg border" />
+            </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><label className="block text-sm font-medium mb-1">Product Name *</label><input type="text" value={newProductForm.productName} onChange={(e) => setNewProductForm({ ...newProductForm, productName: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" /></div>
-              <div><label className="block text-sm font-medium mb-1
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-1">Product Name *</label>
+                <input type="text" value={newProductForm.productName} onChange={(e) => setNewProductForm({ ...newProductForm, productName: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Category</label>
+                <select value={newProductForm.category} onChange={(e) => setNewProductForm({ ...newProductForm, category: e.target.value as ProductCategory })} className="w-full rounded-md border px-3 py-2 text-sm">
+                  {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Design</label>
+                <input type="text" value={newProductForm.design} onChange={(e) => setNewProductForm({ ...newProductForm, design: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Barcode (auto)</label>
+                <input type="text" value={newProductForm.barcode} onChange={(e) => setNewProductForm({ ...newProductForm, barcode: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Size *</label>
+                <input type="text" value={newProductForm.size} onChange={(e) => setNewProductForm({ ...newProductForm, size: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Colour *</label>
+                <input type="text" value={newProductForm.color} onChange={(e) => setNewProductForm({ ...newProductForm, color: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Selling Price *</label>
+                <input type="number" value={newProductForm.sellingPrice || ""} onChange={(e) => setNewProductForm({ ...newProductForm, sellingPrice: Number(e.target.value) })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Stock Qty</label>
+                <input type="number" value={newProductForm.stock || ""} onChange={(e) => setNewProductForm({ ...newProductForm, stock: Number(e.target.value) })} className="w-full rounded-md border px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setShowCaptureModal(false)} className="flex-1 rounded-md border py-2 text-sm">Cancel</button>
+              <button onClick={handleSaveNewProduct} disabled={saving} className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {saving ? "Saving..." : "Add to Inventory"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
