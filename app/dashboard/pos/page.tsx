@@ -43,6 +43,85 @@ const CATEGORIES: ProductCategory[] = [
   "Jean Jacket", "Leather Jacket Sleeveless", "Low waist",
 ];
 
+// Color mapping for categories
+const CATEGORY_COLORS: Record<string, { active: string; inactive: string; hover: string }> = {
+  "All": {
+    active: "bg-emerald-500 text-white border-emerald-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+  },
+  "Wideleg": {
+    active: "bg-blue-500 text-white border-blue-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400"
+  },
+  "Straight": {
+    active: "bg-purple-500 text-white border-purple-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400"
+  },
+  "Short": {
+    active: "bg-orange-500 text-white border-orange-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-orange-50 dark:hover:bg-orange-500/10 hover:text-orange-600 dark:hover:text-orange-400"
+  },
+  "Patras": {
+    active: "bg-pink-500 text-white border-pink-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-pink-50 dark:hover:bg-pink-500/10 hover:text-pink-600 dark:hover:text-pink-400"
+  },
+  "Boyfriend Shorts": {
+    active: "bg-teal-500 text-white border-teal-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-teal-50 dark:hover:bg-teal-500/10 hover:text-teal-600 dark:hover:text-teal-400"
+  },
+  "Jorts": {
+    active: "bg-indigo-500 text-white border-indigo-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400"
+  },
+  "Short Dresses": {
+    active: "bg-rose-500 text-white border-rose-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+  },
+  "Long Dresses": {
+    active: "bg-fuchsia-500 text-white border-fuchsia-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-fuchsia-50 dark:hover:bg-fuchsia-500/10 hover:text-fuchsia-600 dark:hover:text-fuchsia-400"
+  },
+  "Short Skirts": {
+    active: "bg-cyan-500 text-white border-cyan-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-cyan-50 dark:hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400"
+  },
+  "Medium Skirts": {
+    active: "bg-lime-500 text-white border-lime-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-lime-50 dark:hover:bg-lime-500/10 hover:text-lime-600 dark:hover:text-lime-400"
+  },
+  "Long Skirt": {
+    active: "bg-amber-500 text-white border-amber-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-amber-50 dark:hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+  },
+  "Jean Jacket": {
+    active: "bg-sky-500 text-white border-sky-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-sky-50 dark:hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400"
+  },
+  "Leather Jacket Sleeveless": {
+    active: "bg-red-500 text-white border-red-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+  },
+  "Low waist": {
+    active: "bg-violet-500 text-white border-violet-500",
+    inactive: "text-slate-600 dark:text-slate-400 border-transparent",
+    hover: "hover:bg-violet-50 dark:hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-400"
+  },
+};
+
 interface ProductGroup {
   name: string;
   category: ProductCategory;
@@ -456,11 +535,22 @@ export default function POSPage() {
         {/* Category Tabs & Search */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 dark:bg-slate-900 p-1">
-            {categoryTabs.map((cat) => (
-              <button key={cat} onClick={() => setActiveCategory(cat)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeCategory === cat ? "bg-emerald-500 text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-              }`}>{cat}</button>
-            ))}
+            {categoryTabs.map((cat) => {
+              const colorScheme = CATEGORY_COLORS[cat] || CATEGORY_COLORS["All"];
+              return (
+                <button 
+                  key={cat} 
+                  onClick={() => setActiveCategory(cat)} 
+                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium border transition-all ${
+                    activeCategory === cat 
+                      ? colorScheme.active 
+                      : `${colorScheme.inactive} ${colorScheme.hover}`
+                  }`}
+                >
+                  {cat}
+                </button>
+              );
+            })}
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
