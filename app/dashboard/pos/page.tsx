@@ -18,6 +18,8 @@ import {
   Loader2,
   RefreshCw,
   CheckCircle,
+  Percent,
+  Tag,
 } from "lucide-react";
 import { useInventory, type Variant, type ProductCategory } from "@/context/InventoryContext";
 import { useNotifications } from "@/context/NotificationContext";
@@ -162,6 +164,9 @@ export default function POSPage() {
   const [mobileMoneyRef, setMobileMoneyRef] = useState("");
   const [mobileMoneyProvider, setMobileMoneyProvider] = useState<"mtn" | "airtel">("mtn");
   const [refreshing, setRefreshing] = useState(false);
+  const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
+  const [discountValue, setDiscountValue] = useState<number>(0);
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -276,6 +281,17 @@ export default function POSPage() {
 
   const subtotal = cart.reduce((sum, item) => sum + item.variant.sellingPrice * item.quantity, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  
+  // Calculate discount amount
+  const discountAmount = useMemo(() => {
+    if (discountType === "percentage") {
+      return (subtotal * discountValue) / 100;
+    } else {
+      return discountValue;
+    }
+  }, [subtotal, discountType, discountValue]);
+  
+  const totalAfterDiscount = subtotal - discountAmount;
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
@@ -287,7 +303,7 @@ export default function POSPage() {
   };
 
   const completePayment = async () => {
-    if (paymentMethod === "cash" && amountTendered < subtotal) {
+    if (paymentMethod === "cash" && amountTendered < totalAfterDiscount) {
       alert("Amount tendered is less than total!");
       return;
     }
@@ -319,11 +335,11 @@ export default function POSPage() {
         unit_price: item.variant.sellingPrice,
         cost_price: item.variant.costPrice,
       })),
-      total_amount: subtotal,
-      discount_amount: 0,
+      total_amount: totalAfterDiscount,
+      discount_amount: discountAmount,
       payment_method: paymentMethod,
       amount_tendered: paymentMethod === "cash" ? amountTendered : null,
-      change_amount: paymentMethod === "cash" ? amountTendered - subtotal : null,
+      change_amount: paymentMethod === "cash" ? amountTendered - totalAfterDiscount : null,
       user_id: null,
       notes:
         paymentMethod === "mobile_money"
@@ -337,7 +353,7 @@ export default function POSPage() {
       // OFFLINE: Queue the sale locally
       if (!isOnline()) {
         await queueSale(saleData);
-        if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
+        if (paymentMethod === "cash") setCashChange(amountTendered - totalAfterDiscount);
         setShowPaymentModal(false);
         setShowReceiptModal(true);
         addNotification({
@@ -377,19 +393,19 @@ export default function POSPage() {
         });
       }
 
-      if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
+      if (paymentMethod === "cash") setCashChange(amountTendered - totalAfterDiscount);
       setShowPaymentModal(false);
       setShowReceiptModal(true);
 
       addNotification({
         type: "sale",
         title: "Sale Completed ✅",
-        message: `${formatUGX(subtotal)} via ${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}`,
+        message: `${formatUGX(totalAfterDiscount)} via ${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : "Card"}`,
       });
     } catch (error: unknown) {
       // Any error - queue for later
       await queueSale(saleData);
-      if (paymentMethod === "cash") setCashChange(amountTendered - subtotal);
+      if (paymentMethod === "cash") setCashChange(amountTendered - totalAfterDiscount);
       setShowPaymentModal(false);
       setShowReceiptModal(true);
       addNotification({
@@ -406,6 +422,8 @@ export default function POSPage() {
     date: new Date().toLocaleString(),
     items: cart,
     subtotal,
+    discountAmount,
+    total: totalAfterDiscount,
     paymentMethod,
     amountTendered: paymentMethod === "cash" ? amountTendered : undefined,
     change: paymentMethod === "cash" ? cashChange : undefined,
@@ -418,6 +436,7 @@ export default function POSPage() {
     setCart([]);
     setShowReceiptModal(false);
     setScannedVariant(null);
+    setDiscountValue(0);
     refocusScanner();
   };
 
@@ -626,16 +645,168 @@ export default function POSPage() {
             </ul>
           )}
         </div>
-        <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-          <div className="mb-3 flex justify-between text-sm">
-            <span className="text-slate-600 dark:text-slate-400">Subtotal</span>
-            <span className="font-bold text-slate-900 dark:text-white">{formatUGX(subtotal)}</span>
+        <div className="border-t border-slate-200 dark:border-slate-800 p-4 space-y-3">
+          {/* Discount Section */}
+          <div className="space-y-2">
+            {discountAmount > 0 ? (
+              <div className="flex items-center justify-between rounded-md bg-emerald-50 dark:bg-emerald-500/10 p-2">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    {discountType === "percentage" ? `${discountValue}%` : formatUGX(discountValue)} Discount Applied
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                    -{formatUGX(discountAmount)}
+                  </span>
+                  <button 
+                    onClick={() => setShowDiscountModal(true)}
+                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 underline"
+                  >
+                    Edit
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setDiscountValue(0);
+                      setDiscountType("percentage");
+                    }}
+                    className="text-xs text-red-500 hover:text-red-400"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setShowDiscountModal(true)} 
+                disabled={cart.length === 0}
+                className="w-full flex items-center justify-center gap-2 rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Tag className="h-4 w-4" />
+                Apply a Discount
+              </button>
+            )}
           </div>
-          <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full rounded-md bg-emerald-600 py-3 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
-            Process Payment ({formatUGX(subtotal)})
+
+          {/* Price Summary */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600 dark:text-slate-400">Subtotal</span>
+              <span className="font-medium text-slate-900 dark:text-white">{formatUGX(subtotal)}</span>
+            </div>
+            
+            {discountAmount > 0 && (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Discount</span>
+                  <span className="font-medium text-red-600 dark:text-red-400">-{formatUGX(discountAmount)}</span>
+                </div>
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex justify-between">
+                  <span className="font-semibold text-slate-900 dark:text-white">Total</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(totalAfterDiscount)}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Checkout Button */}
+          <button 
+            onClick={handleCheckout} 
+            disabled={cart.length === 0} 
+            className="w-full rounded-md bg-emerald-600 py-3 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+          >
+            Process Payment ({formatUGX(totalAfterDiscount)})
           </button>
         </div>
       </div>
+
+      {/* Discount Modal */}
+      {showDiscountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Apply Discount</h3>
+              <button onClick={() => setShowDiscountModal(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mb-4">
+              <label className="mb-2 block text-sm font-medium text-slate-600 dark:text-slate-400">Discount Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={() => setDiscountType("percentage")} 
+                  className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                    discountType === "percentage" 
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
+                      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400"
+                  }`}
+                >
+                  <Percent className="h-4 w-4" /> Percentage
+                </button>
+                <button 
+                  onClick={() => setDiscountType("fixed")} 
+                  className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                    discountType === "fixed" 
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
+                      : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400"
+                  }`}
+                >
+                  <Banknote className="h-4 w-4" /> Fixed Amount
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-400">
+                {discountType === "percentage" ? "Discount Percentage (%)" : "Discount Amount (UGX)"}
+              </label>
+              <input 
+                type="number" 
+                value={discountValue || ""} 
+                onChange={(e) => setDiscountValue(Number(e.target.value))} 
+                className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" 
+                placeholder={discountType === "percentage" ? "e.g., 10" : "e.g., 5000"}
+              />
+              {discountType === "percentage" && discountValue > 100 && (
+                <p className="mt-1 text-xs text-red-500">Percentage cannot exceed 100%</p>
+              )}
+            </div>
+
+            <div className="mb-4 p-3 rounded-md bg-slate-50 dark:bg-slate-800">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-400">Subtotal</span>
+                <span className="font-bold text-slate-900 dark:text-white">{formatUGX(subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-slate-600 dark:text-slate-400">Discount</span>
+                <span className="font-bold text-red-600 dark:text-red-400">-{formatUGX(discountAmount)}</span>
+              </div>
+              <div className="flex justify-between text-sm mt-1 pt-1 border-t">
+                <span className="font-medium text-slate-900 dark:text-white">Total</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(totalAfterDiscount)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button 
+                onClick={() => {
+                  setDiscountValue(0);
+                  setShowDiscountModal(false);
+                }} 
+                className="flex-1 rounded-md border border-slate-300 dark:border-slate-600 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Remove
+              </button>
+              <button 
+                onClick={() => setShowDiscountModal(false)} 
+                className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Payment Modal */}
       {showPaymentModal && (
@@ -647,7 +818,7 @@ export default function POSPage() {
             </div>
             <div className="mb-4 flex justify-between text-lg">
               <span className="text-slate-600 dark:text-slate-400">Total:</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(subtotal)}</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatUGX(totalAfterDiscount)}</span>
             </div>
             <div className="mb-4 grid grid-cols-3 gap-2">
               {[
@@ -668,8 +839,8 @@ export default function POSPage() {
               <div className="mb-4">
                 <label className="mb-1 block text-sm text-slate-600 dark:text-slate-400">Amount Tendered</label>
                 <input type="number" value={amountTendered || ""} onChange={(e) => setAmountTendered(Number(e.target.value))} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" />
-                {amountTendered > 0 && amountTendered >= subtotal && (
-                  <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">Change: {formatUGX(amountTendered - subtotal)}</p>
+                {amountTendered > 0 && amountTendered >= totalAfterDiscount && (
+                  <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">Change: {formatUGX(amountTendered - totalAfterDiscount)}</p>
                 )}
               </div>
             )}
@@ -696,7 +867,7 @@ export default function POSPage() {
               </div>
             )}
 
-            <button onClick={completePayment} disabled={processing || (paymentMethod === "cash" && amountTendered < subtotal) || (paymentMethod === "mobile_money" && !mobileMoneyRef.trim())} className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
+            <button onClick={completePayment} disabled={processing || (paymentMethod === "cash" && amountTendered < totalAfterDiscount) || (paymentMethod === "mobile_money" && !mobileMoneyRef.trim())} className="w-full rounded-md bg-emerald-600 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
               {processing && <Loader2 className="h-4 w-4 animate-spin" />}
               {processing ? "Processing..." : "Complete Sale"}
             </button>
@@ -730,7 +901,11 @@ export default function POSPage() {
                 </tbody>
               </table>
               <hr className="my-2 border-dashed" />
-              <div className="flex justify-between font-bold"><span>TOTAL:</span><span>{formatUGX(receiptData.subtotal)}</span></div>
+              <div className="flex justify-between"><span>Subtotal:</span><span>{formatUGX(receiptData.subtotal)}</span></div>
+              {receiptData.discountAmount > 0 && (
+                <div className="flex justify-between text-red-600"><span>Discount:</span><span>-{formatUGX(receiptData.discountAmount)}</span></div>
+              )}
+              <div className="flex justify-between font-bold mt-1"><span>TOTAL:</span><span>{formatUGX(receiptData.total)}</span></div>
               <div className="mt-1 text-center">
                 Payment: {receiptData.paymentMethod === "cash" ? "Cash" : receiptData.paymentMethod === "mobile_money" ? `Mobile Money (${receiptData.mobileMoneyProvider?.toUpperCase()})` : "Card"}
                 {receiptData.mobileMoneyRef && <p>Ref: {receiptData.mobileMoneyRef}</p>}
@@ -741,7 +916,7 @@ export default function POSPage() {
               <p className="text-center">Thank you for shopping!</p>
             </div>
             <div className="flex gap-2 border-t border-slate-200 p-4">
-              <button onClick={() => { setShowReceiptModal(false); setCart([]); setScannedVariant(null); refocusScanner(); }} className="flex-1 rounded-md border border-slate-300 py-2 text-sm">Close & New Sale</button>
+              <button onClick={() => { setShowReceiptModal(false); setCart([]); setScannedVariant(null); setDiscountValue(0); refocusScanner(); }} className="flex-1 rounded-md border border-slate-300 py-2 text-sm">Close & New Sale</button>
               <button onClick={printReceipt} className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 py-2 text-sm text-white"><Printer className="h-4 w-4" /> Print</button>
             </div>
           </div>

@@ -14,6 +14,12 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  History,
+  Calendar,
+  Package,
+  TrendingUp,
+  TrendingDown,
+  ShoppingBag
 } from "lucide-react";
 import { useInventory, type Variant, type ProductCategory } from "@/context/InventoryContext";
 
@@ -39,6 +45,19 @@ function generateBarcode(): string {
 type SortField = "name" | "category" | "barcode" | "size" | "color" | "design" | "price" | "stock" | "status" | "date";
 type SortOrder = "asc" | "desc";
 
+interface StockHistoryEntry {
+  id: string;
+  variant_id: string;
+  product_name: string;
+  variant_details: string;
+  change_type: "addition" | "removal" | "adjustment" | "sale";
+  quantity_change: number;
+  previous_stock: number;
+  new_stock: number;
+  notes: string;
+  created_at: string;
+}
+
 export default function InventoryPage() {
   const { variants, loading, addVariant, adjustStock, deleteVariant, updateVariant } = useInventory();
 
@@ -49,6 +68,8 @@ export default function InventoryPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<"all" | "addition" | "removal" | "adjustment" | "sale">("all");
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -87,6 +108,50 @@ export default function InventoryPage() {
     stock: 0,
     lowStockThreshold: 5,
   });
+
+  // Mock stock history data (in production, this would come from your database)
+  const [stockHistory] = useState<StockHistoryEntry[]>([
+    {
+      id: "1",
+      variant_id: "v1",
+      product_name: "Wideleg Jeans",
+      variant_details: "Blue / 32",
+      change_type: "addition",
+      quantity_change: 20,
+      previous_stock: 0,
+      new_stock: 20,
+      notes: "Initial stock purchase from supplier",
+      created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
+    },
+    {
+      id: "2",
+      variant_id: "v1",
+      product_name: "Wideleg Jeans",
+      variant_details: "Blue / 32",
+      change_type: "sale",
+      quantity_change: -3,
+      previous_stock: 20,
+      new_stock: 17,
+      notes: "Sold via POS",
+      created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+    },
+    {
+      id: "3",
+      variant_id: "v2",
+      product_name: "Short Dresses",
+      variant_details: "Red / M",
+      change_type: "addition",
+      quantity_change: 15,
+      previous_stock: 0,
+      new_stock: 15,
+      notes: "New stock arrival",
+      created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+    },
+  ]);
+
+  const filteredHistory = stockHistory.filter(entry => 
+    historyFilter === "all" || entry.change_type === historyFilter
+  );
 
   const filtered = variants.filter(
     (v) =>
@@ -134,6 +199,26 @@ export default function InventoryPage() {
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ArrowUpDown className="h-3 w-3 text-slate-400 dark:text-slate-500" />;
     return sortOrder === "asc" ? <ArrowUp className="h-3 w-3 text-emerald-500" /> : <ArrowDown className="h-3 w-3 text-emerald-500" />;
+  };
+
+  const getChangeTypeColor = (type: string) => {
+    switch (type) {
+      case "addition": return "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400";
+      case "removal": return "bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400";
+      case "adjustment": return "bg-yellow-50 text-yellow-600 dark:bg-yellow-500/20 dark:text-yellow-400";
+      case "sale": return "bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400";
+      default: return "bg-slate-50 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400";
+    }
+  };
+
+  const getChangeTypeIcon = (type: string) => {
+    switch (type) {
+      case "addition": return <TrendingUp className="h-4 w-4" />;
+      case "removal": return <TrendingDown className="h-4 w-4" />;
+      case "adjustment": return <Package className="h-4 w-4" />;
+      case "sale": return <ShoppingBag className="h-4 w-4" />;
+      default: return <Package className="h-4 w-4" />;
+    }
   };
 
   const handleAddVariant = async () => {
@@ -278,6 +363,16 @@ export default function InventoryPage() {
     return { label: "In Stock", color: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" };
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('en-UG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const inputClass = "w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
   const labelClass = "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1";
   const selectClass = "w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none";
@@ -292,9 +387,17 @@ export default function InventoryPage() {
             {loading ? "Loading..." : `${variants.length} variant${variants.length !== 1 ? "s" : ""} total`}
           </p>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors shadow-sm">
-          <Plus className="h-4 w-4" /> Add New Variant
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setShowHistoryModal(true)} 
+            className="flex items-center gap-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
+          >
+            <History className="h-4 w-4" /> Inventory History
+          </button>
+          <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors shadow-sm">
+            <Plus className="h-4 w-4" /> Add New Variant
+          </button>
+        </div>
       </div>
 
       {/* Professional Search Bar */}
@@ -396,7 +499,104 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Add Modal (same as before with themes fixed) */}
+      {/* Inventory History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 dark:bg-black/80 p-4">
+          <div className="w-full max-w-4xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <History className="h-5 w-5 text-emerald-500" /> Inventory History
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Track all stock movements and purchases
+                </p>
+              </div>
+              <button onClick={() => setShowHistoryModal(false)} className="p-1 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex gap-2 mb-4 overflow-x-auto">
+              {[
+                { id: "all", label: "All" },
+                { id: "addition", label: "Additions" },
+                { id: "removal", label: "Removals" },
+                { id: "adjustment", label: "Adjustments" },
+                { id: "sale", label: "Sales" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setHistoryFilter(tab.id as typeof historyFilter)}
+                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    historyFilter === tab.id
+                      ? "bg-emerald-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* History Table */}
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Date</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Product</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Type</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">Change</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">Before</th>
+                    <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">After</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {filteredHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                        No history entries found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredHistory.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(entry.created_at)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-slate-900 dark:text-white">{entry.product_name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{entry.variant_details}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getChangeTypeColor(entry.change_type)}`}>
+                            {getChangeTypeIcon(entry.change_type)}
+                            {entry.change_type.charAt(0).toUpperCase() + entry.change_type.slice(1)}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3 text-right font-bold ${entry.quantity_change > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                          {entry.quantity_change > 0 ? `+${entry.quantity_change}` : entry.quantity_change}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{entry.previous_stock}</td>
+                        <td className="px-4 py-3 text-right font-medium text-slate-900 dark:text-white">{entry.new_stock}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{entry.notes}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 dark:bg-black/80 p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[90vh] overflow-y-auto">
