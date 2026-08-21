@@ -20,6 +20,7 @@ import {
   Smartphone,
   Banknote,
   ChevronDown,
+  BookOpen,
 } from "lucide-react";
 
 function formatUGX(amount: number) {
@@ -49,6 +50,15 @@ interface FinanceData {
   itemsSold: number;
 }
 
+interface CashbookEntry {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  type: "debit" | "credit";
+  amount: number;
+}
+
 export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -58,6 +68,10 @@ export default function FinancePage() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [dailyData, setDailyData] = useState<FinanceData | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showCashbook, setShowCashbook] = useState(false);
+  const [cashbookEntries, setCashbookEntries] = useState<CashbookEntry[]>([]);
+  const [cashbookLoading, setCashbookLoading] = useState(false);
+  const [cashbookFilter, setCashbookFilter] = useState<"all" | "debit" | "credit">("all");
 
   const loadOverallData = async () => {
     setLoading(true);
@@ -85,6 +99,25 @@ export default function FinancePage() {
       setDailyData(result);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load daily data");
+    }
+  };
+
+  const loadCashbook = async () => {
+    setCashbookLoading(true);
+    try {
+      const response = await fetch("/api/finance/cashbook");
+      const result = await response.json();
+      if (response.ok) {
+        setCashbookEntries(result.entries || []);
+      } else {
+        console.error("Failed to load cashbook:", result.error);
+        setCashbookEntries([]);
+      }
+    } catch (error) {
+      console.error("Error loading cashbook:", error);
+      setCashbookEntries([]);
+    } finally {
+      setCashbookLoading(false);
     }
   };
 
@@ -116,7 +149,35 @@ export default function FinancePage() {
     }
   };
 
+  const handleOpenCashbook = () => {
+    setShowCashbook(true);
+    loadCashbook();
+  };
+
   const closeReport = () => setActiveReport(null);
+
+  const filteredCashbook = cashbookEntries.filter(entry => 
+    cashbookFilter === "all" || entry.type === cashbookFilter
+  );
+
+  // Calculate running balance
+  let runningBalance = 0;
+  const cashbookWithBalance = filteredCashbook.map(entry => {
+    if (entry.type === "credit") {
+      runningBalance += entry.amount;
+    } else {
+      runningBalance -= entry.amount;
+    }
+    return { ...entry, balance: runningBalance };
+  });
+
+  const totalDebits = filteredCashbook
+    .filter(e => e.type === "debit")
+    .reduce((sum, e) => sum + e.amount, 0);
+  
+  const totalCredits = filteredCashbook
+    .filter(e => e.type === "credit")
+    .reduce((sum, e) => sum + e.amount, 0);
 
   if (loading) {
     return (
@@ -137,14 +198,22 @@ export default function FinancePage() {
             Track your boutique's financial health
           </p>
         </div>
-        <button 
-          onClick={handleRefresh} 
-          disabled={refreshing} 
-          className="flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleOpenCashbook}
+            className="flex items-center gap-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+          >
+            <BookOpen className="h-4 w-4" /> Cashbook
+          </button>
+          <button 
+            onClick={handleRefresh} 
+            disabled={refreshing} 
+            className="flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -275,6 +344,125 @@ export default function FinancePage() {
           </div>
         </details>
       </div>
+
+      {/* ===== CASHBOOK MODAL ===== */}
+      {showCashbook && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-4xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-emerald-500" /> Cashbook
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  All cash inflows and outflows
+                </p>
+              </div>
+              <button onClick={() => setShowCashbook(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex gap-2 mb-4">
+              {[
+                { id: "all", label: "All" },
+                { id: "credit", label: "Money In (CR)" },
+                { id: "debit", label: "Money Out (DR)" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setCashbookFilter(tab.id as typeof cashbookFilter)}
+                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    cashbookFilter === tab.id
+                      ? "bg-emerald-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Cashbook Table */}
+            {cashbookLoading ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mb-2" />
+                <p className="text-sm text-slate-500">Loading cashbook...</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                  <table className="w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-800/50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Date</th>
+                        <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Reference</th>
+                        <th className="px-4 py-3 text-left font-medium text-slate-600 dark:text-slate-400">Description</th>
+                        <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">DR (Out)</th>
+                        <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">CR (In)</th>
+                        <th className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {cashbookWithBalance.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                            No cashbook entries found.
+                          </td>
+                        </tr>
+                      ) : (
+                        cashbookWithBalance.map((entry) => (
+                          <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                            <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">
+                              {new Date(entry.date).toLocaleDateString('en-UG', { 
+                                year: 'numeric', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
+                              {entry.reference}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                              {entry.description}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-red-600 dark:text-red-400">
+                              {entry.type === "debit" ? formatUGX(entry.amount) : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">
+                              {entry.type === "credit" ? formatUGX(entry.amount) : "—"}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-bold ${entry.balance >= 0 ? "text-slate-900 dark:text-white" : "text-red-600 dark:text-red-400"}`}>
+                              {formatUGX(entry.balance)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-50 dark:bg-slate-800/50">
+                      <tr>
+                        <td colSpan={3} className="px-4 py-3 text-sm font-bold text-slate-900 dark:text-white">
+                          Totals
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600 dark:text-red-400">
+                          {formatUGX(totalDebits)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatUGX(totalCredits)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">
+                          {formatUGX(totalCredits - totalDebits)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ===== DAILY SALES REPORT MODAL ===== */}
       {activeReport === "daily" && dailyData && (
