@@ -21,6 +21,8 @@ import {
   Banknote,
   ChevronDown,
   BookOpen,
+  ArrowLeftRight,
+  Landmark,
 } from "lucide-react";
 
 function formatUGX(amount: number) {
@@ -59,6 +61,19 @@ interface CashbookEntry {
   amount: number;
 }
 
+interface CashTransfer {
+  id: string;
+  date: string;
+  from_account: string;
+  to_account: string;
+  amount: number;
+  reference: string;
+  notes: string;
+  created_at: string;
+}
+
+type AccountType = "cash" | "bank" | "mobile_money";
+
 export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -72,6 +87,20 @@ export default function FinancePage() {
   const [cashbookEntries, setCashbookEntries] = useState<CashbookEntry[]>([]);
   const [cashbookLoading, setCashbookLoading] = useState(false);
   const [cashbookFilter, setCashbookFilter] = useState<"all" | "debit" | "credit">("all");
+  
+  // Cash Transfer states
+  const [showCashTransfer, setShowCashTransfer] = useState(false);
+  const [transfers, setTransfers] = useState<CashTransfer[]>([]);
+  const [transfersLoading, setTransfersLoading] = useState(false);
+  const [transferForm, setTransferForm] = useState({
+    from_account: "cash" as AccountType,
+    to_account: "bank" as AccountType,
+    amount: 0,
+    reference: "",
+    notes: "",
+  });
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [transferSuccess, setTransferSuccess] = useState("");
 
   const loadOverallData = async () => {
     setLoading(true);
@@ -121,6 +150,25 @@ export default function FinancePage() {
     }
   };
 
+  const loadTransfers = async () => {
+    setTransfersLoading(true);
+    try {
+      const response = await fetch("/api/finance/transfers");
+      const result = await response.json();
+      if (response.ok) {
+        setTransfers(result.transfers || []);
+      } else {
+        console.error("Failed to load transfers:", result.error);
+        setTransfers([]);
+      }
+    } catch (error) {
+      console.error("Error loading transfers:", error);
+      setTransfers([]);
+    } finally {
+      setTransfersLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadOverallData();
   }, []);
@@ -154,6 +202,54 @@ export default function FinancePage() {
     loadCashbook();
   };
 
+  const handleOpenCashTransfer = () => {
+    setShowCashTransfer(true);
+    loadTransfers();
+  };
+
+  const handleSubmitTransfer = async () => {
+    if (transferForm.from_account === transferForm.to_account) {
+      setError("Source and destination accounts must be different");
+      return;
+    }
+    if (transferForm.amount <= 0) {
+      setError("Amount must be greater than 0");
+      return;
+    }
+
+    setTransferSubmitting(true);
+    setTransferSuccess("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/finance/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(transferForm),
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        setTransferSuccess("Transfer completed successfully!");
+        setTransferForm({
+          from_account: "cash",
+          to_account: "bank",
+          amount: 0,
+          reference: "",
+          notes: "",
+        });
+        await loadTransfers();
+        await loadOverallData();
+      } else {
+        setError(result.error || "Failed to complete transfer");
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to complete transfer");
+    } finally {
+      setTransferSubmitting(false);
+    }
+  };
+
   const closeReport = () => setActiveReport(null);
 
   const filteredCashbook = cashbookEntries.filter(entry => 
@@ -178,6 +274,33 @@ export default function FinancePage() {
   const totalCredits = filteredCashbook
     .filter(e => e.type === "credit")
     .reduce((sum, e) => sum + e.amount, 0);
+
+  const getAccountLabel = (account: AccountType) => {
+    switch (account) {
+      case "cash": return "Cash";
+      case "bank": return "Bank";
+      case "mobile_money": return "Mobile Money";
+      default: return account;
+    }
+  };
+
+  const getAccountIcon = (account: AccountType) => {
+    switch (account) {
+      case "cash": return <Banknote className="h-4 w-4" />;
+      case "bank": return <Landmark className="h-4 w-4" />;
+      case "mobile_money": return <Smartphone className="h-4 w-4" />;
+      default: return <Wallet className="h-4 w-4" />;
+    }
+  };
+
+  const getAccountColor = (account: AccountType) => {
+    switch (account) {
+      case "cash": return "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400";
+      case "bank": return "bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400";
+      case "mobile_money": return "bg-yellow-50 text-yellow-600 dark:bg-yellow-500/20 dark:text-yellow-400";
+      default: return "bg-slate-50 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400";
+    }
+  };
 
   if (loading) {
     return (
@@ -321,10 +444,10 @@ export default function FinancePage() {
           <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-emerald-600 flex items-center gap-2">
             <PieChart className="h-4 w-4" />
             Advanced Reports
-            <span className="text-xs text-slate-400">(Expenses, Bank Reconciliation)</span>
+            <span className="text-xs text-slate-400">(Expenses, Bank Reconciliation, Cash Transfers)</span>
             <ChevronDown className="h-4 w-4 ml-auto group-open:rotate-180 transition-transform" />
           </summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <button
               onClick={() => handleOpenReport("expenses")}
               className="rounded-md border border-slate-200 dark:border-slate-700 p-4 text-left hover:border-emerald-300 hover:shadow transition-all"
@@ -341,9 +464,154 @@ export default function FinancePage() {
               <p className="font-medium text-slate-900 dark:text-white">Bank Reconciliation</p>
               <p className="text-xs text-slate-500 mt-1">Catch missing deposits</p>
             </button>
+            <button
+              onClick={handleOpenCashTransfer}
+              className="rounded-md border border-slate-200 dark:border-slate-700 p-4 text-left hover:border-emerald-300 hover:shadow transition-all"
+            >
+              <ArrowLeftRight className="h-6 w-6 text-blue-500 mb-2" />
+              <p className="font-medium text-slate-900 dark:text-white">Cash Transfers</p>
+              <p className="text-xs text-slate-500 mt-1">Move money between accounts</p>
+            </button>
           </div>
         </details>
       </div>
+
+      {/* ===== CASH TRANSFER MODAL ===== */}
+      {showCashTransfer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <ArrowLeftRight className="h-5 w-5 text-blue-500" /> Cash Transfers
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Transfer money between accounts
+                </p>
+              </div>
+              <button onClick={() => setShowCashTransfer(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {transferSuccess && (
+              <div className="mb-4 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+                {transferSuccess}
+              </div>
+            )}
+
+            {/* Transfer Form */}
+            <div className="mb-6 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+              <h4 className="font-semibold text-slate-900 dark:text-white mb-4">New Transfer</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">From Account</label>
+                  <select
+                    value={transferForm.from_account}
+                    onChange={(e) => setTransferForm({ ...transferForm, from_account: e.target.value as AccountType })}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="bank">Bank</option>
+                    <option value="mobile_money">Mobile Money</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">To Account</label>
+                  <select
+                    value={transferForm.to_account}
+                    onChange={(e) => setTransferForm({ ...transferForm, to_account: e.target.value as AccountType })}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="bank">Bank</option>
+                    <option value="mobile_money">Mobile Money</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Amount (UGX)</label>
+                  <input
+                    type="number"
+                    value={transferForm.amount || ""}
+                    onChange={(e) => setTransferForm({ ...transferForm, amount: Number(e.target.value) })}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="Enter amount"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Reference (Optional)</label>
+                  <input
+                    type="text"
+                    value={transferForm.reference}
+                    onChange={(e) => setTransferForm({ ...transferForm, reference: e.target.value })}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., TRANS-001"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={transferForm.notes}
+                    onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    placeholder="Add notes"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSubmitTransfer}
+                disabled={transferSubmitting}
+                className="mt-4 w-full rounded-md bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+              >
+                {transferSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                {transferSubmitting ? "Processing..." : "Transfer Money"}
+              </button>
+            </div>
+
+            {/* Transfer History */}
+            <div>
+              <h4 className="font-semibold text-slate-900 dark:text-white mb-3">Transfer History</h4>
+              {transfersLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                </div>
+              ) : transfers.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
+                  No transfers yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {transfers.map((transfer) => (
+                    <div key={transfer.id} className="flex items-center justify-between border border-slate-200 dark:border-slate-700 rounded-md p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getAccountColor(transfer.from_account as AccountType)}`}>
+                            {getAccountIcon(transfer.from_account as AccountType)}
+                            {getAccountLabel(transfer.from_account as AccountType)}
+                          </span>
+                          <ArrowRight className="h-4 w-4 text-slate-400" />
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getAccountColor(transfer.to_account as AccountType)}`}>
+                            {getAccountIcon(transfer.to_account as AccountType)}
+                            {getAccountLabel(transfer.to_account as AccountType)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {new Date(transfer.created_at).toLocaleDateString('en-UG', { month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-slate-900 dark:text-white">{formatUGX(transfer.amount)}</p>
+                        {transfer.reference && <p className="text-xs text-slate-500">{transfer.reference}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== CASHBOOK MODAL ===== */}
       {showCashbook && (
