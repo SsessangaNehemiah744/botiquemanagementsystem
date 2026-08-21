@@ -123,29 +123,11 @@ export default function InventoryPage() {
         setStockHistory(result.history || []);
       } else {
         console.error("Failed to fetch history:", result.error);
-        // If API fails, try to fetch from sales
-        const salesResponse = await fetch(`/api/sales?limit=50`);
-        const salesResult = await salesResponse.json();
-        if (salesResponse.ok && salesResult.sales) {
-          const salesHistory = salesResult.sales.flatMap((sale: any) => 
-            (sale.sale_items || []).map((item: any) => ({
-              id: `${sale.id}-${item.id}`,
-              variant_id: item.variant_id,
-              product_name: item.product_variants?.productName || "Unknown",
-              variant_details: `${item.product_variants?.color || "N/A"} / ${item.product_variants?.size || "N/A"}`,
-              change_type: "sale" as const,
-              quantity_change: -item.quantity,
-              previous_stock: 0,
-              new_stock: 0,
-              notes: "Sold via POS",
-              created_at: sale.created_at,
-            }))
-          );
-          setStockHistory(salesHistory);
-        }
+        setStockHistory([]);
       }
     } catch (error) {
       console.error("Error fetching history:", error);
+      setStockHistory([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -243,7 +225,8 @@ export default function InventoryPage() {
     setSaving(true);
     setErrorMsg("");
     try {
-      const addedVariant = await addVariant({
+      // Just call addVariant - it handles stock history internally in the context
+      await addVariant({
         productName: newVariant.productName,
         category: finalCategory,
         image: newVariant.image || "",
@@ -256,26 +239,6 @@ export default function InventoryPage() {
         stock: newVariant.stock || 0,
         lowStockThreshold: newVariant.lowStockThreshold || 5,
       });
-
-      // Record initial stock in history if stock > 0
-      if (addedVariant && newVariant.stock > 0) {
-        try {
-          await fetch("/api/inventory/history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              variant_id: addedVariant.id,
-              change_type: "addition",
-              quantity_change: newVariant.stock,
-              previous_stock: 0,
-              new_stock: newVariant.stock,
-              notes: "Initial stock entry",
-            }),
-          });
-        } catch (error) {
-          console.error("Failed to record stock history:", error);
-        }
-      }
 
       setShowAddModal(false);
       setShowCustomCategory(false);
@@ -325,6 +288,7 @@ export default function InventoryPage() {
     setSaving(true);
     setErrorMsg("");
     try {
+      // Just call updateVariant - it handles stock history internally
       await updateVariant(editingVariant.id, {
         productName: editForm.productName,
         category: finalCategory,
@@ -361,28 +325,8 @@ export default function InventoryPage() {
 
   const handleAdjustStock = async (id: string, delta: number) => {
     try {
-      const variant = variants.find(v => v.id === id);
-      if (!variant) return;
-      
+      // Just call adjustStock - it handles stock history internally
       await adjustStock(id, delta);
-      
-      // Record stock adjustment in history
-      try {
-        await fetch("/api/inventory/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            variant_id: id,
-            change_type: delta > 0 ? "addition" : "removal",
-            quantity_change: delta,
-            previous_stock: variant.stock,
-            new_stock: variant.stock + delta,
-            notes: delta > 0 ? "Manual stock addition" : "Manual stock removal",
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to record stock adjustment:", error);
-      }
     } catch (error) {
       console.error(error);
     }
