@@ -23,6 +23,7 @@ import {
   BookOpen,
   ArrowLeftRight,
   Landmark,
+  PlusCircle,
 } from "lucide-react";
 
 function formatUGX(amount: number) {
@@ -74,6 +75,18 @@ interface CashTransfer {
 
 type AccountType = "cash" | "bank" | "mobile_money";
 
+const EXPENSE_CATEGORIES = [
+  "Rent",
+  "Utilities",
+  "Salaries",
+  "Transport",
+  "Marketing",
+  "Supplies",
+  "Maintenance",
+  "Taxes",
+  "Other",
+];
+
 export default function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -101,6 +114,18 @@ export default function FinancePage() {
   });
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [transferSuccess, setTransferSuccess] = useState("");
+
+  // Expense entry states
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    category: EXPENSE_CATEGORIES[0],
+    amount: 0,
+    description: "",
+    payment_method: "cash" as "cash" | "bank" | "mobile_money",
+    date: new Date().toISOString().split('T')[0],
+  });
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [expenseSuccess, setExpenseSuccess] = useState("");
 
   const loadOverallData = async () => {
     setLoading(true);
@@ -250,6 +275,53 @@ export default function FinancePage() {
     }
   };
 
+  const handleSubmitExpense = async () => {
+    if (expenseForm.amount <= 0) {
+      setError("Amount must be greater than 0");
+      return;
+    }
+    if (!expenseForm.description.trim()) {
+      setError("Please enter a description");
+      return;
+    }
+
+    setExpenseSubmitting(true);
+    setExpenseSuccess("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/finance/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(expenseForm),
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        setExpenseSuccess("Expense recorded successfully!");
+        setExpenseForm({
+          category: EXPENSE_CATEGORIES[0],
+          amount: 0,
+          description: "",
+          payment_method: "cash",
+          date: new Date().toISOString().split('T')[0],
+        });
+        await loadOverallData();
+        // Close modal after 2 seconds
+        setTimeout(() => {
+          setShowExpenseModal(false);
+          setExpenseSuccess("");
+        }, 2000);
+      } else {
+        setError(result.error || "Failed to record expense");
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to record expense");
+    } finally {
+      setExpenseSubmitting(false);
+    }
+  };
+
   const closeReport = () => setActiveReport(null);
 
   const filteredCashbook = cashbookEntries.filter(entry => 
@@ -322,6 +394,12 @@ export default function FinancePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button 
+            onClick={() => setShowExpenseModal(true)}
+            className="flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+          >
+            <PlusCircle className="h-4 w-4" /> Add Expense
+          </button>
           <button 
             onClick={handleOpenCashbook}
             className="flex items-center gap-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
@@ -475,6 +553,103 @@ export default function FinancePage() {
           </div>
         </details>
       </div>
+
+      {/* ===== ADD EXPENSE MODAL ===== */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Add Expense</h3>
+              <button onClick={() => setShowExpenseModal(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {expenseSuccess && (
+              <div className="mb-4 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+                {expenseSuccess}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Category</label>
+                <select
+                  value={expenseForm.category}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Amount (UGX)</label>
+                <input
+                  type="number"
+                  value={expenseForm.amount || ""}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                  placeholder="Enter amount"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={expenseForm.description}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                  placeholder="e.g., Transport to market"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Payment Method</label>
+                <select
+                  value={expenseForm.payment_method}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, payment_method: e.target.value as "cash" | "bank" | "mobile_money" })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank</option>
+                  <option value="mobile_money">Mobile Money</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setShowExpenseModal(false)}
+                className="flex-1 rounded-md border border-slate-300 dark:border-slate-600 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitExpense}
+                disabled={expenseSubmitting}
+                className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+              >
+                {expenseSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                {expenseSubmitting ? "Saving..." : "Save Expense"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== CASH TRANSFER MODAL ===== */}
       {showCashTransfer && (
