@@ -109,49 +109,59 @@ export default function InventoryPage() {
     lowStockThreshold: 5,
   });
 
-  // Mock stock history data (in production, this would come from your database)
-  const [stockHistory] = useState<StockHistoryEntry[]>([
-    {
-      id: "1",
-      variant_id: "v1",
-      product_name: "Wideleg Jeans",
-      variant_details: "Blue / 32",
-      change_type: "addition",
-      quantity_change: 20,
-      previous_stock: 0,
-      new_stock: 20,
-      notes: "Initial stock purchase from supplier",
-      created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
-    },
-    {
-      id: "2",
-      variant_id: "v1",
-      product_name: "Wideleg Jeans",
-      variant_details: "Blue / 32",
-      change_type: "sale",
-      quantity_change: -3,
-      previous_stock: 20,
-      new_stock: 17,
-      notes: "Sold via POS",
-      created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-    },
-    {
-      id: "3",
-      variant_id: "v2",
-      product_name: "Short Dresses",
-      variant_details: "Red / M",
-      change_type: "addition",
-      quantity_change: 15,
-      previous_stock: 0,
-      new_stock: 15,
-      notes: "New stock arrival",
-      created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-    },
-  ]);
+  // Stock history state
+  const [stockHistory, setStockHistory] = useState<StockHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  const filteredHistory = stockHistory.filter(entry => 
-    historyFilter === "all" || entry.change_type === historyFilter
-  );
+  // Fetch history from API
+  const fetchStockHistory = async (filter: string = "all") => {
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/inventory/history?filter=${filter}`);
+      const result = await response.json();
+      if (response.ok) {
+        setStockHistory(result.history || []);
+      } else {
+        console.error("Failed to fetch history:", result.error);
+        // If API fails, try to fetch from sales
+        const salesResponse = await fetch(`/api/sales?limit=50`);
+        const salesResult = await salesResponse.json();
+        if (salesResponse.ok && salesResult.sales) {
+          const salesHistory = salesResult.sales.flatMap((sale: any) => 
+            (sale.sale_items || []).map((item: any) => ({
+              id: `${sale.id}-${item.id}`,
+              variant_id: item.variant_id,
+              product_name: item.product_variants?.productName || "Unknown",
+              variant_details: `${item.product_variants?.color || "N/A"} / ${item.product_variants?.size || "N/A"}`,
+              change_type: "sale" as const,
+              quantity_change: -item.quantity,
+              previous_stock: 0,
+              new_stock: 0,
+              notes: "Sold via POS",
+              created_at: sale.created_at,
+            }))
+          );
+          setStockHistory(salesHistory);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching history:", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Open history modal
+  const openHistoryModal = () => {
+    setShowHistoryModal(true);
+    fetchStockHistory(historyFilter);
+  };
+
+  // Handle history filter change
+  const handleHistoryFilterChange = (filter: typeof historyFilter) => {
+    setHistoryFilter(filter);
+    fetchStockHistory(filter);
+  };
 
   const filtered = variants.filter(
     (v) =>
@@ -233,7 +243,7 @@ export default function InventoryPage() {
     setSaving(true);
     setErrorMsg("");
     try {
-      await addVariant({
+      const addedVariant = await addVariant({
         productName: newVariant.productName,
         category: finalCategory,
         image: newVariant.image || "",
@@ -246,6 +256,27 @@ export default function InventoryPage() {
         stock: newVariant.stock || 0,
         lowStockThreshold: newVariant.lowStockThreshold || 5,
       });
+
+      // Record initial stock in history if stock > 0
+      if (addedVariant && newVariant.stock > 0) {
+        try {
+          await fetch("/api/inventory/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              variant_id: addedVariant.id,
+              change_type: "addition",
+              quantity_change: newVariant.stock,
+              previous_stock: 0,
+              new_stock: newVariant.stock,
+              notes: "Initial stock entry",
+            }),
+          });
+        } catch (error) {
+          console.error("Failed to record stock history:", error);
+        }
+      }
+
       setShowAddModal(false);
       setShowCustomCategory(false);
       setCustomCategory("");
@@ -330,7 +361,28 @@ export default function InventoryPage() {
 
   const handleAdjustStock = async (id: string, delta: number) => {
     try {
+      const variant = variants.find(v => v.id === id);
+      if (!variant) return;
+      
       await adjustStock(id, delta);
+      
+      // Record stock adjustment in history
+      try {
+        await fetch("/api/inventory/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            variant_id: id,
+            change_type: delta > 0 ? "addition" : "removal",
+            quantity_change: delta,
+            previous_stock: variant.stock,
+            new_stock: variant.stock + delta,
+            notes: delta > 0 ? "Manual stock addition" : "Manual stock removal",
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to record stock adjustment:", error);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -389,7 +441,7 @@ export default function InventoryPage() {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={() => setShowHistoryModal(true)} 
+            onClick={openHistoryModal}
             className="flex items-center gap-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
           >
             <History className="h-4 w-4" /> Inventory History
@@ -528,7 +580,7 @@ export default function InventoryPage() {
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setHistoryFilter(tab.id as typeof historyFilter)}
+                  onClick={() => handleHistoryFilterChange(tab.id as typeof historyFilter)}
                   className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                     historyFilter === tab.id
                       ? "bg-emerald-500 text-white"
@@ -555,14 +607,21 @@ export default function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {filteredHistory.length === 0 ? (
+                  {historyLoading ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-emerald-500 mx-auto" />
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Loading history...</p>
+                      </td>
+                    </tr>
+                  ) : stockHistory.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
                         No history entries found.
                       </td>
                     </tr>
                   ) : (
-                    filteredHistory.map((entry) => (
+                    stockHistory.map((entry) => (
                       <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">
                           <div className="flex items-center gap-1">

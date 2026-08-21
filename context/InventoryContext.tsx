@@ -10,7 +10,6 @@ import React, {
 import { createClient } from "@/lib/supabase/client";
 import { cacheProducts, getCachedProducts, isOnline } from "@/lib/offline";
 
-
 export type ProductCategory = string;
 
 export interface Variant {
@@ -144,6 +143,74 @@ async function logSystemAction(
   }
 }
 
+// Helper to record stock history via API
+async function recordStockHistory(
+  supabase: ReturnType<typeof createClient>,
+  variantId: string,
+  changeType: "addition" | "removal" | "adjustment" | "sale",
+  quantityChange: number,
+  previousStock: number,
+  newStock: number,
+  notes: string
+) {
+  try {
+    console.log("Recording stock history via API:", {
+      variantId,
+      changeType,
+      quantityChange,
+      previousStock,
+      newStock,
+      notes
+    });
+
+    // Use API endpoint instead of direct Supabase
+    const response = await fetch("/api/inventory/history", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        variant_id: variantId,
+        change_type: changeType,
+        quantity_change: quantityChange,
+        previous_stock: previousStock,
+        new_stock: newStock,
+        notes: notes,
+      }),
+    });
+
+    const result = await response.json();
+    
+    if (response.ok) {
+      console.log("Stock history recorded successfully:", result);
+    } else {
+      console.error("Failed to record stock history:", result.error || result);
+      
+      // Fallback: Try direct Supabase insert
+      console.log("Trying direct Supabase insert as fallback...");
+      const { data, error } = await supabase
+        .from("stock_history")
+        .insert({
+          variant_id: variantId,
+          change_type: changeType,
+          quantity_change: quantityChange,
+          previous_stock: previousStock,
+          new_stock: newStock,
+          notes: notes,
+        });
+
+      if (error) {
+        console.error("Direct insert also failed:", error);
+      } else {
+        console.log("Direct insert succeeded:", data);
+      }
+    }
+  } catch (error) {
+    console.error("Exception recording stock history:", error);
+    // Don't throw - history recording shouldn't block main operation
+  }
+}
+
 export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -252,6 +319,19 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         .single();
       if (vErr) throw new Error(vErr.message);
 
+      // Record initial stock in history if stock > 0
+      if (newVariant.stock > 0 && insertedVariant) {
+        await recordStockHistory(
+          supabase,
+          insertedVariant.id,
+          "addition",
+          newVariant.stock,
+          0,
+          newVariant.stock,
+          "Initial stock entry"
+        );
+      }
+
       await logSystemAction(
         supabase,
         "INVENTORY_ADDED",
@@ -268,6 +348,10 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   const updateVariant = useCallback(
     async (id: string, data: Partial<Variant>) => {
+      // Get current variant for stock history
+      const currentVariant = variants.find(v => v.id === id);
+      const previousStock = currentVariant?.stock || 0;
+
       const updates: any = {};
       if (data.barcode !== undefined) updates.barcode = data.barcode;
       if (data.size !== undefined) updates.size = data.size;
@@ -288,28 +372,60 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.from("product_variants").update(updates).eq("id", id);
       if (error) throw new Error(error.message);
 
+      // Record stock change in history if stock was updated
+      if (data.stock !== undefined && data.stock !== previousStock) {
+        const stockChange = data.stock - previousStock;
+        await recordStockHistory(
+          supabase,
+          id,
+          stockChange > 0 ? "addition" : "removal",
+          stockChange,
+          previousStock,
+          data.stock,
+          stockChange > 0 ? "Stock adjusted (increase via edit)" : "Stock adjusted (decrease via edit)"
+        );
+      }
+
       await logSystemAction(
         supabase,
         "INVENTORY_UPDATED",
         "Product",
         id,
-        data.productName || "Variant"
+        data.productName || "Variant",
+        { previousStock, newStock: data.stock }
       );
 
       await fetchVariants();
     },
-    [supabase, fetchVariants]
+    [variants, supabase, fetchVariants]
   );
 
   const adjustStock = useCallback(
     async (id: string, delta: number) => {
       const v = variants.find((x) => x.id === id);
       if (!v) return;
+
+      const previousStock = v.stock;
+      const newStock = Math.max(0, previousStock + delta);
+
+      console.log(`Adjusting stock for variant ${id}: ${previousStock} -> ${newStock} (delta: ${delta})`);
+
       const { error } = await supabase
         .from("product_variants")
-        .update({ stock_quantity: Math.max(0, v.stock + delta) })
+        .update({ stock_quantity: newStock })
         .eq("id", id);
       if (error) throw new Error(error.message);
+
+      // Record stock adjustment in history
+      await recordStockHistory(
+        supabase,
+        id,
+        delta > 0 ? "addition" : "removal",
+        delta,
+        previousStock,
+        newStock,
+        delta > 0 ? "Manual stock addition (+ button)" : "Manual stock removal (- button)"
+      );
 
       await logSystemAction(
         supabase,
@@ -317,7 +433,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         "Product",
         id,
         v.productName,
-        { oldStock: v.stock, newStock: Math.max(0, v.stock + delta), delta }
+        { oldStock: previousStock, newStock, delta }
       );
 
       await fetchVariants();
