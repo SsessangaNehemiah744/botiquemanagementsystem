@@ -883,7 +883,7 @@ export default function POSPage() {
               <div className="text-center">
                 <CheckCircle className="mx-auto h-10 w-10 text-emerald-500 mb-2" />
                 <h2 className="text-lg font-bold">BoutiqueOS</h2>
-                <p>Fashion Boutique</p>
+                <p>Denim House</p>
                 <p>{new Date().toLocaleDateString()}</p>
                 <p>{new Date().toLocaleTimeString()}</p>
               </div>
