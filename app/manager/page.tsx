@@ -53,6 +53,26 @@ interface InventoryItem {
   created_at: string;
 }
 
+interface SoldItem {
+  id: string;
+  sale_id: string;
+  variant_id: string;
+  quantity: number;
+  unit_price: number;
+  created_at: string;
+  product_variants?: {
+    id: string;
+    product_id: string;
+    size: string;
+    color: string;
+    image_url?: string;
+    products?: {
+      name: string;
+      image_url?: string;
+    };
+  };
+}
+
 function daysSince(dateStr: string): number {
   const date = new Date(dateStr);
   const now = new Date();
@@ -72,6 +92,7 @@ export default function ManagerDashboard() {
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [totalInventory, setTotalInventory] = useState(0);
   const [sales, setSales] = useState<unknown[]>([]);
+  const [soldItems, setSoldItems] = useState<SoldItem[]>([]);
   const [lowStockItems, setLowStockItems] = useState<unknown[]>([]);
   const [customersServed, setCustomersServed] = useState<unknown[]>([]);
   const [newInventory, setNewInventory] = useState<InventoryItem[]>([]);
@@ -82,6 +103,7 @@ export default function ManagerDashboard() {
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [overstayingSearch, setOverstayingSearch] = useState("");
+  const [soldItemsSearch, setSoldItemsSearch] = useState("");
 
   const [activePopup, setActivePopup] = useState<
     "revenue" | "items" | "lowStock" | "customers" | "overstaying" | null
@@ -101,7 +123,6 @@ export default function ManagerDashboard() {
         setNewInventory(cachedProducts);
         setTotalInventory(cachedProducts.length);
         
-        // Calculate low stock from cached
         const lowStock = cachedProducts.filter(
           (v: InventoryItem) =>
             Number(v.stock_quantity) <= Number(v.low_stock_threshold) && Number(v.stock_quantity) > 0
@@ -109,7 +130,6 @@ export default function ManagerDashboard() {
         setLowStockItems(lowStock);
         setLowStockCount(lowStock.length);
 
-        // Calculate overstaying stock (older than 2 months)
         const twoMonthsAgo = new Date();
         twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
         const overstaying = cachedProducts.filter(
@@ -139,6 +159,7 @@ export default function ManagerDashboard() {
       setTotalCustomers(data.totalCustomers || 0);
       setTotalInventory(data.totalInventory || 0);
       setSales(data.sales || []);
+      setSoldItems(data.soldItems || []);
       setLowStockItems(data.lowStockItems || []);
       setCustomersServed(data.customersServed || []);
       setNewInventory(data.newInventory || []);
@@ -203,12 +224,14 @@ export default function ManagerDashboard() {
 
   const openPopup = (popup: typeof activePopup) => {
     if (popup === "overstaying") setOverstayingSearch("");
+    if (popup === "items") setSoldItemsSearch("");
     setActivePopup(popup);
   };
 
   const closePopup = () => {
     setActivePopup(null);
     setOverstayingSearch("");
+    setSoldItemsSearch("");
   };
 
   const toggleSort = (field: SortField) => {
@@ -242,6 +265,17 @@ export default function ManagerDashboard() {
 
   const sortedInventory = getSortedInventory(newInventory);
   const sortedOverstaying = getSortedInventory(overstayingStock);
+
+  // Filter sold items
+  const filteredSoldItems = soldItems.filter((item) => {
+    if (!soldItemsSearch.trim()) return true;
+    const q = soldItemsSearch.toLowerCase();
+    return (
+      (item.product_variants?.products?.name || "").toLowerCase().includes(q) ||
+      (item.product_variants?.size || "").toLowerCase().includes(q) ||
+      (item.product_variants?.color || "").toLowerCase().includes(q)
+    );
+  });
 
   if (loading) {
     return (
@@ -404,6 +438,105 @@ export default function ManagerDashboard() {
           )}
         </div>
       </div>
+
+      {/* ITEMS SOLD TODAY POPUP */}
+      {activePopup === "items" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-3xl rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <ShoppingBag className="h-5 w-5 text-blue-500" />
+                Items Sold Today ({totalItems} items)
+              </h3>
+              <button onClick={closePopup} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search sold items..." 
+                  value={soldItemsSearch} 
+                  onChange={(e) => setSoldItemsSearch(e.target.value)} 
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 py-2 pl-10 pr-4 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" 
+                />
+              </div>
+            </div>
+
+            {/* Items List */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {filteredSoldItems.length === 0 ? (
+                <div className="text-center py-12">
+                  <ShoppingBag className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                  <p className="text-slate-500 dark:text-slate-400">
+                    {soldItemsSearch ? "No items match your search." : "No items sold today yet."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredSoldItems.map((item) => {
+                    const productImage = item.product_variants?.image_url || item.product_variants?.products?.image_url;
+                    const productName = item.product_variants?.products?.name || "Unknown Product";
+                    
+                    return (
+                      <div key={item.id} className="flex items-center gap-4 rounded-lg border border-slate-200 dark:border-slate-700 p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        {productImage ? (
+                          <img 
+                            src={productImage} 
+                            alt={productName} 
+                            className="h-16 w-16 rounded-lg object-cover flex-shrink-0 border border-slate-200 dark:border-slate-700" 
+                          />
+                        ) : (
+                          <div className="h-16 w-16 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
+                            <Package className="h-7 w-7 text-slate-400" />
+                          </div>
+                        )}
+                        
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">
+                            {productName}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {item.product_variants?.size || "N/A"} / {item.product_variants?.color || "N/A"}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Sale #{item.sale_id?.substring(0, 8) || "N/A"} · {new Date(item.created_at).toLocaleTimeString()}
+                          </p>
+                        </div>
+                        
+                        <div className="text-right flex-shrink-0">
+                          <p className="font-bold text-slate-900 dark:text-white">
+                            {item.quantity} × {formatUGX(item.unit_price)}
+                          </p>
+                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                            {formatUGX(item.quantity * item.unit_price)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Total */}
+            <div className="p-4 border-t bg-slate-50 dark:bg-slate-800/50">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                  Total Revenue
+                </span>
+                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                  {formatUGX(totalRevenue)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* LOW STOCK POPUP */}
       {activePopup === "lowStock" && (
