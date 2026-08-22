@@ -100,8 +100,9 @@ export default function FinancePage() {
   const [cashbookEntries, setCashbookEntries] = useState<CashbookEntry[]>([]);
   const [cashbookLoading, setCashbookLoading] = useState(false);
   const [cashbookFilter, setCashbookFilter] = useState<"all" | "debit" | "credit">("all");
+  const [cashbookDateFrom, setCashbookDateFrom] = useState<string>("");
+  const [cashbookDateTo, setCashbookDateTo] = useState<string>("");
   
-  // Cash Transfer states
   const [showCashTransfer, setShowCashTransfer] = useState(false);
   const [transfers, setTransfers] = useState<CashTransfer[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(false);
@@ -115,7 +116,6 @@ export default function FinancePage() {
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [transferSuccess, setTransferSuccess] = useState("");
 
-  // Expense entry states
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({
     category: EXPENSE_CATEGORIES[0],
@@ -224,6 +224,8 @@ export default function FinancePage() {
 
   const handleOpenCashbook = () => {
     setShowCashbook(true);
+    setCashbookDateFrom("");
+    setCashbookDateTo("");
     loadCashbook();
   };
 
@@ -307,7 +309,6 @@ export default function FinancePage() {
           date: new Date().toISOString().split('T')[0],
         });
         await loadOverallData();
-        // Close modal after 2 seconds
         setTimeout(() => {
           setShowExpenseModal(false);
           setExpenseSuccess("");
@@ -324,11 +325,29 @@ export default function FinancePage() {
 
   const closeReport = () => setActiveReport(null);
 
-  const filteredCashbook = cashbookEntries.filter(entry => 
-    cashbookFilter === "all" || entry.type === cashbookFilter
-  );
+  const filteredCashbook = cashbookEntries.filter(entry => {
+    const matchesType = cashbookFilter === "all" || entry.type === cashbookFilter;
+    const entryDate = new Date(entry.date);
+    entryDate.setHours(0, 0, 0, 0);
+    
+    let matchesDateFrom = true;
+    let matchesDateTo = true;
+    
+    if (cashbookDateFrom) {
+      const fromDate = new Date(cashbookDateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      matchesDateFrom = entryDate >= fromDate;
+    }
+    
+    if (cashbookDateTo) {
+      const toDate = new Date(cashbookDateTo);
+      toDate.setHours(23, 59, 59, 999);
+      matchesDateTo = entryDate <= toDate;
+    }
+    
+    return matchesType && matchesDateFrom && matchesDateTo;
+  });
 
-  // Calculate running balance
   let runningBalance = 0;
   const cashbookWithBalance = filteredCashbook.map(entry => {
     if (entry.type === "credit") {
@@ -461,7 +480,6 @@ export default function FinancePage() {
 
       {/* Main Report Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        {/* Daily Sales Report */}
         <button
           onClick={() => handleOpenReport("daily")}
           className="group rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 p-6 text-left hover:border-emerald-400 dark:hover:border-emerald-600 hover:shadow-lg transition-all"
@@ -479,7 +497,6 @@ export default function FinancePage() {
           </span>
         </button>
 
-        {/* P&L Report */}
         <button
           onClick={() => handleOpenReport("pnl")}
           className="group rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 p-6 text-left hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-lg transition-all"
@@ -497,7 +514,6 @@ export default function FinancePage() {
           </span>
         </button>
 
-        {/* Debts Report */}
         <button
           onClick={() => handleOpenReport("debts")}
           className="group rounded-xl border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-500/10 dark:to-pink-500/10 p-6 text-left hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-lg transition-all"
@@ -675,7 +691,6 @@ export default function FinancePage() {
               </div>
             )}
 
-            {/* Transfer Form */}
             <div className="mb-6 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
               <h4 className="font-semibold text-slate-900 dark:text-white mb-4">New Transfer</h4>
               <div className="grid grid-cols-2 gap-4">
@@ -744,7 +759,6 @@ export default function FinancePage() {
               </button>
             </div>
 
-            {/* Transfer History */}
             <div>
               <h4 className="font-semibold text-slate-900 dark:text-white mb-3">Transfer History</h4>
               {transfersLoading ? (
@@ -806,25 +820,62 @@ export default function FinancePage() {
               </button>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex gap-2 mb-4">
-              {[
-                { id: "all", label: "All" },
-                { id: "credit", label: "Money In (CR)" },
-                { id: "debit", label: "Money Out (DR)" },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setCashbookFilter(tab.id as typeof cashbookFilter)}
-                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    cashbookFilter === tab.id
-                      ? "bg-emerald-500 text-white"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            {/* Filters */}
+            <div className="mb-4 space-y-3">
+              {/* Type Filter Tabs */}
+              <div className="flex gap-2">
+                {[
+                  { id: "all", label: "All" },
+                  { id: "credit", label: "Money In (CR)" },
+                  { id: "debit", label: "Money Out (DR)" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCashbookFilter(tab.id as typeof cashbookFilter)}
+                    className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      cashbookFilter === tab.id
+                        ? "bg-emerald-500 text-white"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Date Filters */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                  <span className="text-xs text-slate-600 dark:text-slate-400">From:</span>
+                  <input
+                    type="date"
+                    value={cashbookDateFrom}
+                    onChange={(e) => setCashbookDateFrom(e.target.value)}
+                    className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-600 dark:text-slate-400">To:</span>
+                  <input
+                    type="date"
+                    value={cashbookDateTo}
+                    onChange={(e) => setCashbookDateTo(e.target.value)}
+                    className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                {(cashbookDateFrom || cashbookDateTo) && (
+                  <button
+                    onClick={() => {
+                      setCashbookDateFrom("");
+                      setCashbookDateTo("");
+                    }}
+                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
+                  >
+                    Clear Dates
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Cashbook Table */}
@@ -923,7 +974,6 @@ export default function FinancePage() {
               </button>
             </div>
 
-            {/* Date Picker */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
                 Select Date
@@ -936,7 +986,6 @@ export default function FinancePage() {
               />
             </div>
 
-            {/* Payment Breakdown */}
             <div className="grid grid-cols-2 gap-3 mb-6">
               <div className="rounded-md bg-emerald-50 dark:bg-emerald-500/10 p-4">
                 <div className="flex items-center gap-2">
@@ -968,7 +1017,6 @@ export default function FinancePage() {
               </div>
             </div>
 
-            {/* Expected Cash */}
             <div className="rounded-md bg-slate-50 dark:bg-slate-800 p-4 mb-6">
               <div className="flex justify-between">
                 <span className="font-medium text-slate-900 dark:text-white">Expected Cash in Drawer:</span>
@@ -977,7 +1025,6 @@ export default function FinancePage() {
               <p className="text-xs text-slate-500 mt-1">Count the drawer and compare. If different, investigate immediately.</p>
             </div>
 
-            {/* Mobile Money References */}
             <div className="mb-6">
               <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Mobile Money References</h4>
               {dailyData.mobileMoneyRefs.length === 0 ? (
@@ -994,7 +1041,6 @@ export default function FinancePage() {
               )}
             </div>
 
-            {/* Summary */}
             <div className="border-t pt-3 flex justify-between text-sm">
               <span className="text-slate-600 dark:text-slate-400">
                 Total Sales ({dailyData.salesCount} transactions, {dailyData.itemsSold} items)
@@ -1069,7 +1115,6 @@ export default function FinancePage() {
               </button>
             </div>
 
-            {/* Customer Debts */}
             <h4 className="font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
               <Users className="h-4 w-4 text-purple-500" /> Who Owes Us (Customers)
             </h4>
@@ -1089,7 +1134,6 @@ export default function FinancePage() {
               </div>
             )}
 
-            {/* Supplier Balances */}
             <h4 className="font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
               <Truck className="h-4 w-4 text-blue-500" /> Who We Owe (Suppliers)
             </h4>
