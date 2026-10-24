@@ -17,6 +17,7 @@ export default function CashierCustomersPage() {
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addCustomerError, setAddCustomerError] = useState("");
   const [newCustomer, setNewCustomer] = useState({ full_name: "", phone: "" });
   const supabase = createClient();
 
@@ -32,16 +33,29 @@ export default function CashierCustomersPage() {
   };
 
   const handleAddCustomer = async () => {
-    if (!newCustomer.full_name.trim()) return;
+    if (!newCustomer.full_name.trim()) {
+      setAddCustomerError("Full name is required");
+      return;
+    }
     setSaving(true);
-    await supabase.from("customers").insert({
-      full_name: newCustomer.full_name,
-      phone: newCustomer.phone || null,
-    });
-    setSaving(false);
-    setShowAddModal(false);
-    setNewCustomer({ full_name: "", phone: "" });
-    fetchCustomers();
+    setAddCustomerError("");
+    try {
+      const response = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCustomer),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to add customer");
+
+      setShowAddModal(false);
+      setNewCustomer({ full_name: "", phone: "" });
+      fetchCustomers();
+    } catch (err: unknown) {
+      setAddCustomerError(err instanceof Error ? err.message : "Failed to add customer");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filtered = customers.filter(
@@ -61,7 +75,7 @@ export default function CashierCustomersPage() {
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Customers</h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">Search and add customers (view only)</p>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+        <button onClick={() => { setAddCustomerError(""); setShowAddModal(true); }} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
           <Plus className="h-4 w-4" /> Add Customer
         </button>
       </div>
@@ -99,6 +113,7 @@ export default function CashierCustomersPage() {
               <div><label className="block text-sm font-medium mb-1">Full Name *</label><input type="text" value={newCustomer.full_name} onChange={(e) => setNewCustomer({ ...newCustomer, full_name: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" /></div>
               <div><label className="block text-sm font-medium mb-1">Phone</label><input type="text" value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="w-full rounded-md border px-3 py-2 text-sm" /></div>
             </div>
+            {addCustomerError && <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{addCustomerError}</p>}
             <div className="mt-6 flex gap-2">
               <button onClick={() => setShowAddModal(false)} className="flex-1 rounded-md border py-2 text-sm">Cancel</button>
               <button onClick={handleAddCustomer} disabled={saving} className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500">{saving ? "Saving..." : "Save"}</button>

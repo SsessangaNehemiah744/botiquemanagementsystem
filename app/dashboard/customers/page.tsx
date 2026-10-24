@@ -53,6 +53,7 @@ export default function CustomersPage() {
 
   // Forms
   const [saving, setSaving] = useState(false);
+  const [addCustomerError, setAddCustomerError] = useState("");
   const [newCustomer, setNewCustomer] = useState({ full_name: "", phone: "", email: "", address: "" });
   const [editForm, setEditForm] = useState({ full_name: "", phone: "", email: "", address: "" });
   const [paymentAmount, setPaymentAmount] = useState(0);
@@ -78,11 +79,11 @@ export default function CustomersPage() {
 
   const handleAddCustomer = async () => {
     if (!newCustomer.full_name.trim()) {
-      setError("Full name is required");
+      setAddCustomerError("Full name is required");
       return;
     }
     setSaving(true);
-    setError("");
+    setAddCustomerError("");
     try {
       const response = await fetch("/api/customers", {
         method: "POST",
@@ -95,7 +96,7 @@ export default function CustomersPage() {
       setNewCustomer({ full_name: "", phone: "", email: "", address: "" });
       fetchCustomers();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to add customer");
+      setAddCustomerError(err instanceof Error ? err.message : "Failed to add customer");
     } finally {
       setSaving(false);
     }
@@ -177,7 +178,7 @@ export default function CustomersPage() {
             {customers.length} customer{customers.length !== 1 ? "s" : ""} · {formatUGX(totalOutstanding)} outstanding
           </p>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors">
+        <button onClick={() => { setAddCustomerError(""); setShowAddModal(true); }} className="flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors">
           <Plus className="h-4 w-4" /> Add Customer
         </button>
       </div>
@@ -267,6 +268,7 @@ export default function CustomersPage() {
               <div><label className="block text-sm font-medium mb-1">Email</label><input type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" placeholder="customer@email.com" /></div>
               <div><label className="block text-sm font-medium mb-1">Address</label><input type="text" value={newCustomer.address} onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })} className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none" /></div>
             </div>
+            {addCustomerError && <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{addCustomerError}</p>}
             <div className="mt-6 flex gap-2">
               <button onClick={() => setShowAddModal(false)} className="flex-1 rounded-md border py-2 text-sm">Cancel</button>
               <button onClick={handleAddCustomer} disabled={saving} className="flex-1 rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 flex items-center justify-center gap-2">{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Saving..." : "Save Customer"}</button>

@@ -34,13 +34,47 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { full_name, phone, email, address } = body;
 
-    if (!full_name) {
+    if (typeof full_name !== "string" || !full_name.trim()) {
       return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+    }
+
+    const normalizedName = full_name.trim().replace(/\s+/g, " ").toLowerCase();
+    const normalizedPhone = typeof phone === "string" ? phone.replace(/\D/g, "") : "";
+    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    const { data: existingCustomers, error: lookupError } = await supabase
+      .from("customers")
+      .select("full_name, phone, email");
+
+    if (lookupError) {
+      return NextResponse.json({ error: lookupError.message }, { status: 500 });
+    }
+
+    const customerExists = (existingCustomers || []).some((existingCustomer) => {
+      const existingName = String(existingCustomer.full_name || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+      const existingPhone = String(existingCustomer.phone || "").replace(/\D/g, "");
+      const existingEmail = String(existingCustomer.email || "").trim().toLowerCase();
+
+      return (
+        existingName === normalizedName ||
+        (!!normalizedPhone && existingPhone === normalizedPhone) ||
+        (!!normalizedEmail && existingEmail === normalizedEmail)
+      );
+    });
+
+    if (customerExists) {
+      return NextResponse.json(
+        { error: "The customer already exists in list" },
+        { status: 409 }
+      );
     }
 
     const { data: customer, error } = await supabase
       .from("customers")
-      .insert({ full_name, phone: phone || null, email: email || null, address: address || null })
+      .insert({ full_name: full_name.trim(), phone: phone || null, email: email || null, address: address || null })
       .select()
       .single();
 
